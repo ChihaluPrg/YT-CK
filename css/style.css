@@ -1,0 +1,678 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --primary-color: #00b8a3; /* ホロライブ水色系 */
+    --secondary-color: #f8c1d8; /* ホロライブピンク系 */
+    --accent-color: #fab907; /* 黄色アクセント */
+    --dark-color: #1a1a1a;
+    --light-color: #f9f9f9;
+    --live-color: #f04c41; /* ライブ中の赤色 */
+    --upcoming-color: #33a6b8; /* 配信予定の青色 */
+    --completed-color: #6c757d; /* 過去配信のグレー */
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: var(--dark-color);
+    background-color: var(--light-color);
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* ヘッダー */
+header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin-bottom: 30px;
+    padding: 20px 0;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+#settings-button {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    transition: transform 0.3s;
+}
+
+#settings-button:hover {
+    transform: translateY(-50%) rotate(30deg);
+}
+
+h1, h2 {
+    margin-bottom: 15px;
+}
+
+section {
+    background-color: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* フォーム要素 */
+.form-group {
+    margin-bottom: 15px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+input[type="text"],
+input[type="number"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+small {
+    display: block;
+    color: #666;
+    margin-top: 5px;
+}
+
+button {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-right: 10px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #009688;
+}
+
+.api-key-container {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+/* チャンネルリスト */
+.channel-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    transition: transform 0.2s;
+}
+
+.channel-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.channel-info {
+    flex-grow: 1;
+}
+
+.channel-actions button {
+    padding: 5px 10px;
+    font-size: 14px;
+}
+
+/* タブとビュー切り替え */
+.view-toggle {
+    display: flex;
+    margin-bottom: 15px;
+}
+
+.view-btn {
+    background: none;
+    color: var(--dark-color);
+    border: 1px solid #ddd;
+    padding: 8px 15px;
+    margin-right: 5px;
+    cursor: pointer;
+}
+
+.view-btn.active {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.result-tabs {
+    display: flex;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #ddd;
+}
+
+.tab-btn {
+    background: none;
+    color: var(--dark-color);
+    border: none;
+    padding: 10px 20px;
+    margin-right: 5px;
+    cursor: pointer;
+    font-weight: normal;
+    transition: all 0.3s;
+}
+
+.tab-btn.active {
+    border-bottom: 3px solid var(--primary-color);
+    font-weight: bold;
+    color: var(--primary-color);
+}
+
+.tab-content, .schedule-view {
+    display: none;
+}
+
+.tab-content.active, .schedule-view.active {
+    display: block;
+}
+
+/* カレンダー表示 */
+.date-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: var(--light-color);
+    border-radius: 5px;
+}
+
+.date-navigation button {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+}
+
+.date-navigation h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    color: var(--dark-color);
+}
+
+.timeline-container {
+    display: flex;
+    position: relative;
+    margin-top: 20px;
+    overflow-x: auto;
+}
+
+.timeline-hours {
+    width: 60px;
+    position: sticky;
+    left: 0;
+    background-color: white;
+    z-index: 10;
+}
+
+.hour-marker {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #eee;
+    font-weight: bold;
+    color: var(--dark-color);
+}
+
+.timeline-schedule {
+    flex-grow: 1;
+    position: relative;
+    min-height: 1440px; /* 24時間 x 60px */
+}
+
+.schedule-item {
+    position: absolute;
+    left: 0;
+    width: calc(100% - 10px);
+    background-color: var(--primary-color);
+    border-radius: 5px;
+    padding: 10px;
+    color: white;
+    font-size: 0.85rem;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all 0.3s;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+}
+
+.schedule-item:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    z-index: 20;
+}
+
+.schedule-item.live {
+    background-color: var(--live-color);
+    border-left: 5px solid #d32f2f;
+}
+
+.schedule-item.upcoming {
+    background-color: var(--upcoming-color);
+    border-left: 5px solid #0288d1;
+}
+
+.schedule-item.completed {
+    background-color: var(--completed-color);
+    border-left: 5px solid #455a64;
+}
+
+.time-indicator {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background-color: red;
+    z-index: 15;
+}
+
+.time-indicator::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    background-color: red;
+    border-radius: 50%;
+}
+
+/* 配信カード（リスト表示用） */
+.stream-card {
+    display: flex;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s;
+    background-color: white;
+}
+
+.stream-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.stream-thumbnail {
+    width: 280px;
+    height: 157px;
+    object-fit: cover;
+}
+
+.schedule-channel {
+    font-weight: bold;
+    margin-bottom: 5px;
+}
+
+.stream-details {
+    padding: 15px;
+    flex-grow: 1;
+    position: relative;
+}
+
+.stream-title {
+    font-size: 18px;
+    margin-bottom: 10px;
+    color: var(--dark-color);
+}
+
+.stream-time {
+    display: inline-block;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.stream-time.live {
+    background-color: var(--live-color);
+    color: white;
+}
+
+.stream-time.upcoming {
+    background-color: var(--upcoming-color);
+    color: white;
+}
+
+.stream-time.completed {
+    background-color: var(--completed-color);
+    color: white;
+}
+
+.stream-channel {
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.stream-description {
+    margin-top: 10px;
+    color: #555;
+}
+
+/* 日付区切り */
+.date-separator {
+    margin-bottom: 15px;
+}
+
+.watch-button {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 15px;
+    background-color: var(--primary-color);
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+.watch-button:hover {
+    background-color: #009688;
+}
+
+.no-results {
+    text-align: center;
+    padding: 30px;
+    color: #666;
+    background-color: #f5f5f5;
+    border-radius: 5px;
+    margin-top: 20px;
+}
+
+/* サムネイル関連 */
+.thumbnail-container {
+    min-width: 280px;
+    position: relative;
+}
+
+.status-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.stream-card:hover .stream-thumbnail {
+    filter: brightness(1.1);
+}
+
+/* 折りたたみセクション */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.section-header h2 {
+    margin-bottom: 0;
+}
+
+.section-actions {
+    display: flex;
+    align-items: center;
+}
+
+.action-btn {
+    background: none;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: 5px 10px;
+    margin-right: 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.action-btn:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 5px 10px;
+    transition: transform 0.3s ease;
+}
+
+.section-content {
+    overflow: hidden;
+    max-height: 2000px; /* 十分大きな値 */
+    transition: max-height 0.5s ease;
+}
+
+.collapsible.collapsed .section-content {
+    max-height: 0;
+}
+
+.collapsible.collapsed .toggle-btn {
+    transform: rotate(180deg);
+}
+
+/* セクション間のスペース調整 */
+.collapsible {
+    margin-bottom: 15px;
+}
+
+.collapsible.collapsed {
+    margin-bottom: 5px;
+}
+
+/* モーダル */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    overflow: auto;
+}
+
+.modal-content {
+    background-color: white;
+    margin: 50px auto;
+    padding: 0;
+    width: 80%;
+    max-width: 700px;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    animation: modalFadeIn 0.3s;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; transform: translateY(-50px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background-color: var(--primary-color);
+    color: white;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.modal-header h2 {
+    margin: 0;
+}
+
+.close-modal {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.close-modal:hover {
+    transform: scale(1.2);
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    padding: 15px 20px;
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid #eee;
+}
+
+.btn {
+    padding: 8px 15px;
+    margin-left: 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn.primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn.primary:hover {
+    background-color: #009688;
+}
+
+/* 設定タブ */
+.settings-tabs {
+    display: flex;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 20px;
+}
+
+.settings-tab {
+    background: none;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.3s;
+}
+
+.settings-tab.active {
+    color: var(--primary-color);
+    font-weight: bold;
+}
+
+.settings-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background-color: var(--primary-color);
+}
+
+.settings-panel {
+    display: none;
+}
+
+.settings-panel.active {
+    display: block;
+}
+
+.setting-group {
+    margin-bottom: 25px;
+}
+
+.setting-group h3 {
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 15px;
+}
+
+.setting-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.setting-item label {
+    flex: 0 0 200px;
+    margin-bottom: 0;
+}
+
+/* 通知テストボタン用スタイル */
+.notification-test {
+    margin-top: 20px;
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+}
+
+#test-notification {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+}
+
+#test-notification:hover {
+    background-color: #009688;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
