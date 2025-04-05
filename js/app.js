@@ -414,7 +414,23 @@ document.addEventListener('DOMContentLoaded', () => {
             
         } catch (error) {
             console.error('チャンネルのチェック中にエラーが発生しました:', error);
-            alert(`エラー: ${error.message}`);
+            
+            // よりユーザーフレンドリーなエラーメッセージを表示
+            let userMessage = `エラーが発生しました: ${error.message}`;
+            
+            if (error.message.includes('クォータを超過')) {
+                userMessage = 'YouTube APIのクォータ（利用制限）を超過しました。しばらく時間をおいてから再試行してください。';
+            } else if (error.message.includes('API key')) {
+                userMessage = 'YouTube APIキーが無効です。キーを確認して再度設定してください。';
+            } else if (error.message.includes('チャンネルID') && error.message.includes('見つかりません')) {
+                userMessage = `チャンネルが見つかりません: ${channel.channelId}\nチャンネルIDが正しいか確認してください。`;
+            } else if (error.message.includes('タイムアウト') || error.name === 'AbortError') {
+                userMessage = 'リクエストがタイムアウトしました。ネットワーク接続を確認してください。';
+            } else if (error.message.includes('NetworkError') || error.message.includes('network')) {
+                userMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+            }
+            
+            alert(userMessage);
         }
     }
 

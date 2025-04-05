@@ -2,28 +2,80 @@ class YouTubeAPI {
     constructor(apiKey) {
         this.apiKey = apiKey;
         this.baseUrl = 'https://www.googleapis.com/youtube/v3/';
+        this.retryCount = 3; // リトライ回数
+        this.retryDelay = 1000; // リトライ間の遅延（ミリ秒）
+        this.timeout = 10000; // タイムアウト（10秒）
     }
 
     setApiKey(key) {
         this.apiKey = key;
     }
 
+    // 改良されたフェッチ関数（タイムアウトとリトライ機能付き）
+    async fetchWithRetry(url, options = {}, retries = this.retryCount) {
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), this.timeout);
+            
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            
+            clearTimeout(id);
+            
+            if (!response.ok) {
+                const errorBody = await response.text();
+                let errorMessage;
+                
+                try {
+                    const errorJson = JSON.parse(errorBody);
+                    errorMessage = errorJson.error ? 
+                        `${errorJson.error.code} ${errorJson.error.message}` : 
+                        `ステータスコード: ${response.status}`;
+                } catch (e) {
+                    errorMessage = `ステータスコード: ${response.status}, 詳細: ${errorBody}`;
+                }
+                
+                throw new Error(`YouTube API エラー: ${errorMessage}`);
+            }
+            
+            return response;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('リクエストがタイムアウトしました。ネットワーク接続を確認してください。');
+            }
+            
+            if (retries > 0) {
+                console.warn(`リクエスト失敗、リトライします (残り${retries}回): ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+                return this.fetchWithRetry(url, options, retries - 1);
+            }
+            
+            if (error.message.includes('429')) {
+                throw new Error('YouTube APIのクォータを超過しました。しばらく時間をおいてから再試行してください。');
+            }
+            
+            throw error;
+        }
+    }
+
     async fetchUpcomingLivestreams(channelId) {
         try {
             // チャンネルのアップロード用プレイリストIDを取得
-            const channelResponse = await fetch(
+            const channelResponse = await this.fetchWithRetry(
                 `${this.baseUrl}channels?part=contentDetails&id=${channelId}&key=${this.apiKey}`
             );
             const channelData = await channelResponse.json();
             
             if (!channelData.items || channelData.items.length === 0) {
-                throw new Error('チャンネルが見つかりません');
+                throw new Error(`チャンネルID "${channelId}" が見つかりません。IDが正しいか確認してください。`);
             }
 
             const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
             // 最近のアップロードを取得
-            const playlistResponse = await fetch(
+            const playlistResponse = await this.fetchWithRetry(
                 `${this.baseUrl}playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${this.apiKey}`
             );
             const playlistData = await playlistResponse.json();
@@ -34,9 +86,12 @@ class YouTubeAPI {
 
             // 取得したビデオIDのリスト
             const videoIds = playlistData.items.map(item => item.contentDetails.videoId).join(',');
+            if (!videoIds) {
+                return [];
+            }
 
             // ビデオの詳細を取得（ライブステータスを含む）
-            const videosResponse = await fetch(
+            const videosResponse = await this.fetchWithRetry(
                 `${this.baseUrl}videos?part=snippet,liveStreamingDetails&id=${videoIds}&key=${this.apiKey}`
             );
             const videosData = await videosResponse.json();
@@ -51,27 +106,30 @@ class YouTubeAPI {
 
             return upcomingLivestreams;
         } catch (error) {
-            console.error('Error fetching upcoming livestreams:', error);
-            throw error;
+            console.error('予定配信の取得エラー:', error);
+            const errorMessage = error.message.includes('YouTube API') ? 
+                error.message : 
+                `予定配信の取得に失敗しました: ${error.message}`;
+            throw new Error(errorMessage);
         }
     }
 
     async fetchCompletedLivestreams(channelId) {
         try {
             // チャンネルのアップロード用プレイリストIDを取得
-            const channelResponse = await fetch(
+            const channelResponse = await this.fetchWithRetry(
                 `${this.baseUrl}channels?part=contentDetails&id=${channelId}&key=${this.apiKey}`
             );
             const channelData = await channelResponse.json();
             
             if (!channelData.items || channelData.items.length === 0) {
-                throw new Error('チャンネルが見つかりません');
+                throw new Error(`チャンネルID "${channelId}" が見つかりません。IDが正しいか確認してください。`);
             }
 
             const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
             // 最近のアップロードを取得（より多くを取得するため最大値を設定）
-            const playlistResponse = await fetch(
+            const playlistResponse = await this.fetchWithRetry(
                 `${this.baseUrl}playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${this.apiKey}`
             );
             const playlistData = await playlistResponse.json();
@@ -88,7 +146,7 @@ class YouTubeAPI {
             }
 
             // ビデオの詳細を取得
-            const videosResponse = await fetch(
+            const videosResponse = await this.fetchWithRetry(
                 `${this.baseUrl}videos?part=snippet,liveStreamingDetails,contentDetails&id=${videoIds}&key=${this.apiKey}`
             );
             const videosData = await videosResponse.json();
@@ -107,15 +165,18 @@ class YouTubeAPI {
 
             return completedLivestreams;
         } catch (error) {
-            console.error('Error fetching completed livestreams:', error);
-            throw error;
+            console.error('過去の配信の取得エラー:', error);
+            const errorMessage = error.message.includes('YouTube API') ? 
+                error.message : 
+                `過去の配信の取得に失敗しました: ${error.message}`;
+            throw new Error(errorMessage);
         }
     }
 
     async fetchLiveStreams(channelId) {
         try {
             // チャンネルの現在のライブストリームを取得
-            const searchResponse = await fetch(
+            const searchResponse = await this.fetchWithRetry(
                 `${this.baseUrl}search?part=snippet&channelId=${channelId}&eventType=live&type=video&key=${this.apiKey}`
             );
             const searchData = await searchResponse.json();
@@ -132,15 +193,18 @@ class YouTubeAPI {
             }
 
             // ビデオの詳細情報を取得
-            const videosResponse = await fetch(
+            const videosResponse = await this.fetchWithRetry(
                 `${this.baseUrl}videos?part=snippet,liveStreamingDetails&id=${videoIds}&key=${this.apiKey}`
             );
             const videosData = await videosResponse.json();
 
             return videosData.items || [];
         } catch (error) {
-            console.error('Error fetching live streams:', error);
-            throw error;
+            console.error('ライブ配信の取得エラー:', error);
+            const errorMessage = error.message.includes('YouTube API') ? 
+                error.message : 
+                `ライブ配信の取得に失敗しました: ${error.message}`;
+            throw new Error(errorMessage);
         }
     }
 

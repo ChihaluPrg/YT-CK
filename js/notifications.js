@@ -2,6 +2,8 @@ class NotificationManager {
     constructor() {
         this.notifiedVideos = new Set();
         this.isNotificationSupported = 'Notification' in window;
+        this.timeout = 10000; // 10秒タイムアウト
+        this.retryCount = 2; // リトライ回数
         this.requestPermission();
     }
 
@@ -12,7 +14,6 @@ class NotificationManager {
     }
 
     canNotify() {
-        // 設定から通知の有効・無効を確認
         const appSettings = this.getSettings();
         return this.isNotificationSupported && 
                Notification.permission === 'granted' && 
@@ -20,7 +21,6 @@ class NotificationManager {
     }
 
     canNotifyDiscord() {
-        // Discordの通知設定を確認
         const appSettings = this.getSettings();
         return appSettings.discord && 
                appSettings.discord.enableDiscord && 
@@ -28,22 +28,17 @@ class NotificationManager {
                appSettings.discord.webhookUrl.trim() !== '';
     }
 
-    // 通知を表示
     notify(stream, type) {
-        // ブラウザ通知
         if (this.canNotify()) {
             this.sendBrowserNotification(stream, type);
         }
         
-        // Discord通知
         if (this.canNotifyDiscord()) {
             this.sendDiscordNotification(stream, type);
         }
     }
 
-    // ブラウザ通知
     sendBrowserNotification(stream, type) {
-        // 設定に基づいて通知するかを判断
         const appSettings = this.getSettings();
         if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
             return;
@@ -55,12 +50,10 @@ class NotificationManager {
             return;
         }
 
-        // すでに通知したビデオであれば通知しない
         if (this.notifiedVideos.has(stream.id)) {
             return;
         }
 
-        // タイトルとアイコン設定（YouTube風）
         let title, icon;
         
         if (type === 'live') {
@@ -74,7 +67,6 @@ class NotificationManager {
             icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
         }
 
-        // ブラウザ通知オプション（YouTube風）
         const options = {
             body: stream.snippet.title,
             icon: icon,
@@ -84,24 +76,19 @@ class NotificationManager {
             data: {
                 url: `https://www.youtube.com/watch?v=${stream.id}`
             },
-            // サウンドの設定（設定に基づく）
             silent: !appSettings.notification.enableSound
         };
 
         try {
-            // ブラウザ通知を表示
             const notification = new Notification(title, options);
             
-            // 通知クリック時の動作
             notification.onclick = function() {
                 window.open(this.data.url, '_blank');
                 this.close();
             };
 
-            // 通知済みとしてマーク
             this.notifiedVideos.add(stream.id);
             
-            // 24時間後に通知済みリストから削除（メモリ節約のため）
             setTimeout(() => {
                 this.notifiedVideos.delete(stream.id);
             }, 24 * 60 * 60 * 1000);
@@ -110,9 +97,7 @@ class NotificationManager {
         }
     }
 
-    // Discord通知を送信
     async sendDiscordNotification(stream, type) {
-        // 設定に基づいて通知するかを判断
         const appSettings = this.getSettings();
         if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
             return;
@@ -124,27 +109,27 @@ class NotificationManager {
             return;
         }
 
-        // すでに通知したビデオであれば通知しない
         if (this.notifiedVideos.has(stream.id + '_discord')) {
             return;
         }
 
         try {
             const webhookUrl = appSettings.discord.webhookUrl;
-            const username = appSettings.discord.username || 'YouTube配信通知';
             
-            // Embedの色（ライブ中は赤、予定は青、終了はグレー）
+            if (!webhookUrl || !webhookUrl.startsWith('https://discord.com/api/webhooks/')) {
+                console.error('無効なDiscord Webhook URL:', webhookUrl);
+                throw new Error('Discord Webhook URLが無効です。設定を確認してください。');
+            }
+            
+            const username = appSettings.discord.username || 'YouTube配信通知';
             const color = type === 'live' ? 0xFF0000 : 
                          type === 'upcoming' ? 0x3498DB : 0x708090;
-            
-            // Embedのタイトル
             const title = type === 'live' 
                 ? `🔴 ライブ配信中: ${stream.snippet.title}`
                 : type === 'upcoming'
                 ? `🕒 配信予定: ${stream.snippet.title}`
                 : `✓ 配信終了: ${stream.snippet.title}`;
             
-            // 日時フォーマット
             let timeField = {};
             if (type === 'upcoming' && stream.liveStreamingDetails.scheduledStartTime) {
                 const startTime = new Date(stream.liveStreamingDetails.scheduledStartTime);
@@ -178,7 +163,6 @@ class NotificationManager {
                 };
             }
             
-            // Discordに送信するデータ
             const data = {
                 username: username,
                 embeds: [{
@@ -210,23 +194,10 @@ class NotificationManager {
                 }]
             };
             
-            // Discord Webhookに送信
-            const response = await fetch(webhookUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(data)
-            });
+            await this.sendWebhookWithRetry(webhookUrl, data);
             
-            if (!response.ok) {
-                throw new Error(`Discord通知の送信に失敗しました: ${response.status}`);
-            }
-            
-            // 通知済みとしてマーク（Discordは別にID管理）
             this.notifiedVideos.add(stream.id + '_discord');
             
-            // 24時間後に通知済みリストから削除（メモリ節約のため）
             setTimeout(() => {
                 this.notifiedVideos.delete(stream.id + '_discord');
             }, 24 * 60 * 60 * 1000);
@@ -237,15 +208,60 @@ class NotificationManager {
             console.error('Discord通知の送信中にエラーが発生しました:', error);
         }
     }
+    
+    async sendWebhookWithRetry(webhookUrl, data, retries = this.retryCount) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+            
+            const response = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data),
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Discord APIエラー (${response.status}): ${errorText}`);
+            }
+            
+            return response;
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.warn('Discord webhook リクエストがタイムアウトしました');
+                if (retries > 0) {
+                    console.log(`リトライします... (残り${retries}回)`);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    return this.sendWebhookWithRetry(webhookUrl, data, retries - 1);
+                }
+                throw new Error('Discord通信がタイムアウトしました。ネットワーク接続を確認してください。');
+            }
+            
+            if (error.message.includes('429')) {
+                throw new Error('Discordのレート制限に達しました。しばらく時間をおいてから再試行してください。');
+            }
+            
+            if (retries > 0) {
+                console.warn(`Discord webhook リクエスト失敗: ${error.message}, リトライします (残り${retries}回)`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                return this.sendWebhookWithRetry(webhookUrl, data, retries - 1);
+            }
+            
+            throw error;
+        }
+    }
 
-    // 新しい配信が見つかった場合に通知
     notifyNewStreams(newStreams, type) {
         newStreams.forEach(stream => {
             this.notify(stream, type);
         });
     }
 
-    // アプリケーション設定を取得
     getSettings() {
         const defaultSettings = {
             notification: {
@@ -269,7 +285,6 @@ class NotificationManager {
         return defaultSettings;
     }
 
-    // テスト通知を送信（テスト用）
     testNotification() {
         if (!this.canNotify()) {
             if (Notification.permission === 'denied') {
@@ -288,7 +303,6 @@ class NotificationManager {
             return;
         }
         
-        // テスト用のダミーデータ
         const testStream = {
             id: 'test-' + Date.now(),
             snippet: {
@@ -306,24 +320,21 @@ class NotificationManager {
                 }
             },
             liveStreamingDetails: {
-                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(), // 2時間前に開始
+                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(),
                 actualStartTime: new Date(Date.now() - 7200000).toISOString(),
-                actualEndTime: new Date(Date.now() - 300000).toISOString(), // 5分前に終了
+                actualEndTime: new Date(Date.now() - 300000).toISOString(),
             }
         };
         
-        // テスト用に全タイプの通知を生成
         const notificationTypes = ['upcoming', 'live', 'completed'];
         const testType = notificationTypes[Math.floor(Math.random() * notificationTypes.length)];
         this.sendBrowserNotification(testStream, testType);
         
-        // 確認メッセージ
         setTimeout(() => {
             alert(`${testType}タイプのテスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。`);
         }, 500);
     }
 
-    // Discord通知テスト
     async testDiscordNotification() {
         if (!this.canNotifyDiscord()) {
             alert('Discord通知が設定されていないか、無効になっています。設定を確認してください。');
@@ -331,7 +342,6 @@ class NotificationManager {
         }
         
         try {
-            // テスト用のダミーデータ
             const testStream = {
                 id: 'test-discord-' + Date.now(),
                 snippet: {
@@ -354,14 +364,24 @@ class NotificationManager {
                 }
             };
             
-            // Discord通知を送信
             await this.sendDiscordNotification(testStream, 'live');
             
             alert('Discordにテスト通知を送信しました。Discordサーバーで確認してください。');
-            
         } catch (error) {
             console.error('Discord通知テスト中にエラーが発生しました:', error);
-            alert(`Discord通知テストに失敗しました: ${error.message}`);
+            let errorMessage = 'Discord通知テストに失敗しました';
+            
+            if (error.message.includes('無効なDiscord Webhook URL')) {
+                errorMessage = 'Discord Webhook URLが無効です。正しいURLを設定してください。';
+            } else if (error.message.includes('429')) {
+                errorMessage = 'Discordのレート制限に達しました。しばらく時間をおいてから再試行してください。';
+            } else if (error.name === 'AbortError' || error.message.includes('タイムアウト')) {
+                errorMessage = 'リクエストがタイムアウトしました。ネットワーク接続を確認してください。';
+            } else if (error.message.includes('NetworkError')) {
+                errorMessage = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
+            }
+            
+            alert(`${errorMessage}\nエラー詳細: ${error.message}`);
         }
     }
 }
