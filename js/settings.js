@@ -22,7 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
         notification: {
             enableNotifications: true,
             notifyUpcoming: true,
-            notifyLive: true
+            notifyLive: true,
+            enableSound: true
         },
         display: {
             defaultTab: 'upcoming',
@@ -58,6 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('enable-notifications').checked = currentSettings.notification.enableNotifications;
         document.getElementById('notify-upcoming').checked = currentSettings.notification.notifyUpcoming;
         document.getElementById('notify-live').checked = currentSettings.notification.notifyLive;
+        document.getElementById('enable-sound').checked = 
+            currentSettings.notification.enableSound !== undefined ? 
+            currentSettings.notification.enableSound : true;
         
         // 表示設定
         document.getElementById('default-tab').value = currentSettings.display.defaultTab;
@@ -75,7 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
             notification: {
                 enableNotifications: document.getElementById('enable-notifications').checked,
                 notifyUpcoming: document.getElementById('notify-upcoming').checked,
-                notifyLive: document.getElementById('notify-live').checked
+                notifyLive: document.getElementById('notify-live').checked,
+                enableSound: document.getElementById('enable-sound').checked
             },
             display: {
                 defaultTab: document.getElementById('default-tab').value,
@@ -198,33 +203,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // テスト通知を送信
     function sendTestNotification() {
-        if (!('Notification' in window)) {
-            alert('このブラウザは通知をサポートしていません');
-            return;
-        }
-        
-        if (Notification.permission === 'granted') {
-            const notification = new Notification('テスト通知', {
-                body: 'YouTube ライブ配信検索ツールからのテスト通知です',
-                icon: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
-            });
-            
-            notification.onclick = function() {
-                window.focus();
-                this.close();
-            };
-            
-            alert('テスト通知を送信しました。通知が表示されない場合は、ブラウザの設定で通知が許可されているか確認してください。');
-        } else if (Notification.permission !== 'denied') {
-            Notification.requestPermission().then(permission => {
-                if (permission === 'granted') {
-                    sendTestNotification();
-                } else {
-                    alert('通知の許可が得られませんでした。ブラウザの設定で通知を許可してください。');
-                }
-            });
+        // NotificationManagerのインスタンスを取得
+        if (typeof notificationManager !== 'undefined') {
+            notificationManager.testNotification();
         } else {
-            alert('通知がブロックされています。ブラウザの設定で許可してください');
+            // グローバルなインスタンスがない場合は一時的に作成
+            const testManager = new NotificationManager();
+            testManager.testNotification();
         }
     }
     

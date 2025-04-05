@@ -160,13 +160,16 @@
                             <label for="notify-live">ライブ配信の通知:</label>
                             <input type="checkbox" id="notify-live" checked>
                         </div>
+                        <div class="setting-item">
+                            <label for="enable-sound">通知音を有効にする:</label>
+                            <input type="checkbox" id="enable-sound" checked>
+                        </div>
                         <div class="setting-item notification-test">
                             <label>通知テスト:</label>
                             <button id="test-notification" class="btn primary">通知をテスト</button>
                         </div>
                     </div>
                 </div>
-                
                 
                 <div id="display-settings" class="settings-panel">
                     <div class="setting-group">
@@ -200,6 +203,9 @@
     <!-- CSVインポート用ファイル選択 -->
     <label for="csv-file-input" class="visually-hidden">CSVファイルを選択してください</label>
     <input type="file" id="csv-file-input" accept=".csv" title="CSVファイルを選択" placeholder="CSVファイルを選択">
+
+    <!-- プリロード用の音声ファイル -->
+    <audio id="notification-sound" preload="auto" src="audio/notification.mp3"></audio>
 
     <script src="js/youtubeAPI.js"></script>
     <script src="js/notifications.js"></script>
