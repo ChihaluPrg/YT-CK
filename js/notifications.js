@@ -2,7 +2,6 @@ class NotificationManager {
     constructor() {
         this.notifiedVideos = new Set();
         this.isNotificationSupported = 'Notification' in window;
-        this.notificationSound = new Audio('audio/notification.mp3');
         this.requestPermission();
     }
 
@@ -20,11 +19,30 @@ class NotificationManager {
                appSettings.notification.enableNotifications;
     }
 
-    notify(stream, type) {
-        if (!this.canNotify()) {
-            return;
-        }
+    canNotifyDiscord() {
+        // Discordの通知設定を確認
+        const appSettings = this.getSettings();
+        return appSettings.discord && 
+               appSettings.discord.enableDiscord && 
+               appSettings.discord.webhookUrl && 
+               appSettings.discord.webhookUrl.trim() !== '';
+    }
 
+    // 通知を表示
+    notify(stream, type) {
+        // ブラウザ通知
+        if (this.canNotify()) {
+            this.sendBrowserNotification(stream, type);
+        }
+        
+        // Discord通知
+        if (this.canNotifyDiscord()) {
+            this.sendDiscordNotification(stream, type);
+        }
+    }
+
+    // ブラウザ通知
+    sendBrowserNotification(stream, type) {
         // 設定に基づいて通知するかを判断
         const appSettings = this.getSettings();
         if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
@@ -39,58 +57,156 @@ class NotificationManager {
             return;
         }
 
-        const title = type === 'live' 
-            ? `🔴 ライブ配信中: ${stream.snippet.channelTitle}`
-            : `🕒 配信予定: ${stream.snippet.channelTitle}`;
+        // タイトルとアイコン設定（YouTube風）
+        let title, icon;
+        
+        if (type === 'live') {
+            title = `${stream.snippet.channelTitle} がライブ配信中`;
+            icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
+        } else {
+            title = `${stream.snippet.channelTitle} が配信予定`;
+            icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
+        }
 
+        // ブラウザ通知オプション（YouTube風）
         const options = {
             body: stream.snippet.title,
-            icon: stream.snippet.thumbnails.high.url,
+            icon: icon,
+            badge: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png',
+            image: stream.snippet.thumbnails.high.url,
             tag: stream.id,
             data: {
                 url: `https://www.youtube.com/watch?v=${stream.id}`
             },
-            silent: !appSettings.notification.enableSound // サウンドを設定に基づき制御
+            // サウンドの設定（設定に基づく）
+            silent: !appSettings.notification.enableSound
         };
 
-        const notification = new Notification(title, options);
-        
-        notification.onclick = function() {
-            window.open(this.data.url, '_blank');
-            this.close();
-        };
+        try {
+            // ブラウザ通知を表示
+            const notification = new Notification(title, options);
+            
+            // 通知クリック時の動作
+            notification.onclick = function() {
+                window.open(this.data.url, '_blank');
+                this.close();
+            };
 
-        // 音声通知が有効な場合は音を鳴らす
-        if (appSettings.notification.enableSound) {
-            this.playNotificationSound();
+            // 通知済みとしてマーク
+            this.notifiedVideos.add(stream.id);
+            
+            // 24時間後に通知済みリストから削除（メモリ節約のため）
+            setTimeout(() => {
+                this.notifiedVideos.delete(stream.id);
+            }, 24 * 60 * 60 * 1000);
+        } catch (error) {
+            console.error('ブラウザ通知の表示中にエラーが発生しました:', error);
         }
-
-        // 通知済みとしてマーク
-        this.notifiedVideos.add(stream.id);
-        
-        // 24時間後に通知済みリストから削除（メモリ節約のため）
-        setTimeout(() => {
-            this.notifiedVideos.delete(stream.id);
-        }, 24 * 60 * 60 * 1000);
     }
 
-    // 通知音を再生
-    playNotificationSound() {
+    // Discord通知を送信
+    async sendDiscordNotification(stream, type) {
+        // 設定に基づいて通知するかを判断
+        const appSettings = this.getSettings();
+        if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
+            return;
+        }
+        if (type === 'live' && !appSettings.notification.notifyLive) {
+            return;
+        }
+
+        // すでに通知したビデオであれば通知しない
+        if (this.notifiedVideos.has(stream.id + '_discord')) {
+            return;
+        }
+
         try {
-            // 再生中の場合は停止してから再生
-            this.notificationSound.pause();
-            this.notificationSound.currentTime = 0;
+            const webhookUrl = appSettings.discord.webhookUrl;
+            const username = appSettings.discord.username || 'YouTube配信通知';
             
-            // ユーザーのインタラクションがあった場合のみ再生可能
-            const playPromise = this.notificationSound.play();
+            // Embedの色（ライブ中は赤、予定は青）
+            const color = type === 'live' ? 0xFF0000 : 0x3498DB;
             
-            if (playPromise !== undefined) {
-                playPromise.catch(error => {
-                    console.warn('通知音の再生に失敗しました:', error);
-                });
+            // Embedのタイトル
+            const title = type === 'live' 
+                ? `🔴 ライブ配信中: ${stream.snippet.title}`
+                : `🕒 配信予定: ${stream.snippet.title}`;
+            
+            // 日時フォーマット
+            let timeField = {};
+            if (type === 'upcoming' && stream.liveStreamingDetails.scheduledStartTime) {
+                const startTime = new Date(stream.liveStreamingDetails.scheduledStartTime);
+                timeField = {
+                    name: '配信開始予定時刻',
+                    value: `<t:${Math.floor(startTime.getTime() / 1000)}:F>`,
+                    inline: true
+                };
+            } else if (type === 'live' && stream.liveStreamingDetails.actualStartTime) {
+                const startTime = new Date(stream.liveStreamingDetails.actualStartTime);
+                timeField = {
+                    name: '配信開始時刻',
+                    value: `<t:${Math.floor(startTime.getTime() / 1000)}:F>`,
+                    inline: true
+                };
             }
+            
+            // Discordに送信するデータ
+            const data = {
+                username: username,
+                embeds: [{
+                    title: title,
+                    url: `https://www.youtube.com/watch?v=${stream.id}`,
+                    color: color,
+                    author: {
+                        name: stream.snippet.channelTitle,
+                        url: `https://www.youtube.com/channel/${stream.snippet.channelId}`,
+                        icon_url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                    },
+                    description: stream.snippet.description.substring(0, 300) + (stream.snippet.description.length > 300 ? '...' : ''),
+                    thumbnail: {
+                        url: stream.snippet.thumbnails.high.url
+                    },
+                    fields: [
+                        timeField,
+                        {
+                            name: 'チャンネル',
+                            value: `[${stream.snippet.channelTitle}](https://www.youtube.com/channel/${stream.snippet.channelId})`,
+                            inline: true
+                        }
+                    ],
+                    footer: {
+                        text: 'YouTube配信検索ツール',
+                        icon_url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                    },
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            
+            // Discord Webhookに送信
+            const response = await fetch(webhookUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Discord通知の送信に失敗しました: ${response.status}`);
+            }
+            
+            // 通知済みとしてマーク（Discordは別にID管理）
+            this.notifiedVideos.add(stream.id + '_discord');
+            
+            // 24時間後に通知済みリストから削除（メモリ節約のため）
+            setTimeout(() => {
+                this.notifiedVideos.delete(stream.id + '_discord');
+            }, 24 * 60 * 60 * 1000);
+            
+            console.log('Discord通知を送信しました:', title);
+            
         } catch (error) {
-            console.error('通知音の再生中にエラーが発生しました:', error);
+            console.error('Discord通知の送信中にエラーが発生しました:', error);
         }
     }
 
@@ -109,6 +225,11 @@ class NotificationManager {
                 notifyUpcoming: true,
                 notifyLive: true,
                 enableSound: true
+            },
+            discord: {
+                enableDiscord: false,
+                webhookUrl: '',
+                username: 'YouTube配信通知'
             }
         };
 
@@ -123,7 +244,7 @@ class NotificationManager {
     testNotification() {
         if (!this.canNotify()) {
             if (Notification.permission === 'denied') {
-                alert('通知がブロックされています。ブラウザの設定で許可してください。');
+                alert('ブラウザ通知がブロックされています。ブラウザの設定で許可してください。');
             } else if (Notification.permission !== 'granted') {
                 Notification.requestPermission().then(permission => {
                     if (permission === 'granted') {
@@ -137,25 +258,78 @@ class NotificationManager {
             }
             return;
         }
-
-        const options = {
-            body: 'YouTube ライブ配信検索ツールからのテスト通知です',
-            icon: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png',
-            silent: !this.getSettings().notification.enableSound
-        };
-
-        const notification = new Notification('テスト通知', options);
         
-        notification.onclick = function() {
-            window.focus();
-            this.close();
+        // テスト用のダミーデータ
+        const testStream = {
+            id: 'test-' + Date.now(),
+            snippet: {
+                title: 'これはテスト通知です',
+                channelTitle: 'YouTube ライブ配信ツール',
+                channelId: 'TestChannelID',
+                description: 'テスト通知の説明文です。この通知はテスト用に送信されています。',
+                thumbnails: {
+                    default: {
+                        url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                    },
+                    high: {
+                        url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                    }
+                }
+            },
+            liveStreamingDetails: {
+                scheduledStartTime: new Date(Date.now() + 3600000).toISOString(),
+                actualStartTime: new Date().toISOString()
+            }
         };
+        
+        // テスト用通知を生成
+        this.sendBrowserNotification(testStream, 'live');
+        
+        // 確認メッセージ
+        setTimeout(() => {
+            alert('テスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。');
+        }, 500);
+    }
 
-        // 音声通知が有効な場合は音を鳴らす
-        if (this.getSettings().notification.enableSound) {
-            this.playNotificationSound();
+    // Discord通知テスト
+    async testDiscordNotification() {
+        if (!this.canNotifyDiscord()) {
+            alert('Discord通知が設定されていないか、無効になっています。設定を確認してください。');
+            return;
         }
-
-        alert('テスト通知を送信しました。通知が表示されない場合は、ブラウザの設定で通知が許可されているか確認してください。');
+        
+        try {
+            // テスト用のダミーデータ
+            const testStream = {
+                id: 'test-discord-' + Date.now(),
+                snippet: {
+                    title: 'これはDiscordテスト通知です',
+                    channelTitle: 'YouTube ライブ配信ツール',
+                    channelId: 'TestChannelID',
+                    description: 'テスト通知の説明文です。この通知はテスト用に送信されています。\nDiscord通知が正常に機能していることを確認するためのテストです。',
+                    thumbnails: {
+                        default: {
+                            url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                        },
+                        high: {
+                            url: 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png'
+                        }
+                    }
+                },
+                liveStreamingDetails: {
+                    scheduledStartTime: new Date(Date.now() + 3600000).toISOString(),
+                    actualStartTime: new Date().toISOString()
+                }
+            };
+            
+            // Discord通知を送信
+            await this.sendDiscordNotification(testStream, 'live');
+            
+            alert('Discordにテスト通知を送信しました。Discordサーバーで確認してください。');
+            
+        } catch (error) {
+            console.error('Discord通知テスト中にエラーが発生しました:', error);
+            alert(`Discord通知テストに失敗しました: ${error.message}`);
+        }
     }
 }

@@ -1,6 +1,8 @@
 // 設定管理とCSVのインポート・エクスポート機能を実装するファイル
 
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('settings.js が読み込まれました');
+    
     // DOM要素
     const settingsButton = document.getElementById('settings-button');
     const settingsModal = document.getElementById('settings-modal');
@@ -12,6 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const importButton = document.getElementById('import-channels');
     const csvFileInput = document.getElementById('csv-file-input');
     const testNotificationButton = document.getElementById('test-notification');
+    const testDiscordButton = document.getElementById('test-discord-notification');
+    
+    // 要素のデバッグ出力
+    console.log('設定ボタン:', settingsButton);
+    console.log('設定モーダル:', settingsModal);
     
     // デフォルト設定
     const defaultSettings = {
@@ -24,6 +31,11 @@ document.addEventListener('DOMContentLoaded', () => {
             notifyUpcoming: true,
             notifyLive: true,
             enableSound: true
+        },
+        discord: {
+            enableDiscord: false,
+            webhookUrl: '',
+            username: 'YouTube配信通知'
         },
         display: {
             defaultTab: 'upcoming',
@@ -63,6 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
             currentSettings.notification.enableSound !== undefined ? 
             currentSettings.notification.enableSound : true;
         
+        // Discord設定
+        if (currentSettings.discord) {
+            document.getElementById('enable-discord').checked = currentSettings.discord.enableDiscord || false;
+            document.getElementById('discord-webhook-url').value = currentSettings.discord.webhookUrl || '';
+            document.getElementById('discord-username').value = currentSettings.discord.username || 'YouTube配信通知';
+        }
+        
         // 表示設定
         document.getElementById('default-tab').value = currentSettings.display.defaultTab;
         document.getElementById('collapse-settings').checked = currentSettings.display.collapseSettings;
@@ -81,6 +100,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 notifyUpcoming: document.getElementById('notify-upcoming').checked,
                 notifyLive: document.getElementById('notify-live').checked,
                 enableSound: document.getElementById('enable-sound').checked
+            },
+            discord: {
+                enableDiscord: document.getElementById('enable-discord').checked,
+                webhookUrl: document.getElementById('discord-webhook-url').value.trim(),
+                username: document.getElementById('discord-username').value.trim() || 'YouTube配信通知'
             },
             display: {
                 defaultTab: document.getElementById('default-tab').value,
@@ -213,6 +237,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    // Discordテスト通知を送信
+    function sendTestDiscordNotification() {
+        // NotificationManagerのインスタンスを取得
+        if (typeof notificationManager !== 'undefined') {
+            notificationManager.testDiscordNotification();
+        } else {
+            // グローバルなインスタンスがない場合は一時的に作成
+            const testManager = new NotificationManager();
+            testManager.testDiscordNotification();
+        }
+    }
+    
     // 外部から呼び出せるように公開
     window.toggleSection = function(section, sectionId) {
         section.classList.toggle('collapsed');
@@ -261,11 +297,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // イベントリスナー
     
     // 設定ボタンクリック
-    settingsButton.addEventListener('click', () => {
-        populateSettingsForm();
-        settingsModal.style.display = 'block';
-        document.body.style.overflow = 'hidden'; // スクロール防止
-    });
+    if (settingsButton) {
+        settingsButton.addEventListener('click', () => {
+            console.log('設定ボタンがクリックされました');
+            populateSettingsForm();
+            settingsModal.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // スクロール防止
+        });
+    } else {
+        console.error('設定ボタンが見つかりません');
+    }
     
     // モーダルを閉じる
     closeModalButtons.forEach(button => {
@@ -339,6 +380,14 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('テスト通知ボタンが登録されました');
     } else {
         console.error('テスト通知ボタンが見つかりません');
+    }
+    
+    // Discordテスト通知ボタン
+    if (testDiscordButton) {
+        testDiscordButton.addEventListener('click', sendTestDiscordNotification);
+        console.log('Discordテスト通知ボタンが登録されました');
+    } else {
+        console.error('Discordテスト通知ボタンが見つかりません');
     }
     
     // 初期設定の適用
