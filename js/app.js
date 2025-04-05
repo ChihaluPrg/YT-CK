@@ -359,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
         channelItem.remove();
     }
 
-    // チャンネルのライブ配信と配信予定をチェック
+    // チャンネルのライブ配信と配信予定、配信終了をチェック
     async function checkChannel(channel) {
         if (!youtubeAPI.apiKey) {
             alert('YouTube API キーを設定してください');
@@ -367,6 +367,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
+            // 過去の完了した配信を保存（新しく終了した配信を検出するため）
+            const previousCompletedIds = new Set(allStreams.completed.map(stream => stream.id));
+            
             // ライブ配信をチェック
             const liveStreams = await youtubeAPI.fetchLiveStreams(channel.channelId);
             const filteredLiveStreams = youtubeAPI.filterStreamsByKeywords(liveStreams, channel.keywords);
@@ -392,6 +395,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // 新しい配信を通知
             notificationManager.notifyNewStreams(filteredLiveStreams, 'live');
             notificationManager.notifyNewStreams(filteredUpcomingStreams, 'upcoming');
+            
+            // 新しく終了した配信を検出して通知
+            const newlyCompletedStreams = filteredCompletedStreams.filter(
+                stream => !previousCompletedIds.has(stream.id)
+            );
+            notificationManager.notifyNewStreams(newlyCompletedStreams, 'completed');
             
             // UI更新
             updateStreamsList(allStreams.live, liveStreamsContainer, false, false);

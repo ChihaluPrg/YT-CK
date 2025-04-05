@@ -30,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
             enableNotifications: true,
             notifyUpcoming: true,
             notifyLive: true,
+            notifyCompleted: false,
             enableSound: true
         },
         discord: {
@@ -71,6 +72,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('enable-notifications').checked = currentSettings.notification.enableNotifications;
         document.getElementById('notify-upcoming').checked = currentSettings.notification.notifyUpcoming;
         document.getElementById('notify-live').checked = currentSettings.notification.notifyLive;
+        document.getElementById('notify-completed').checked = 
+            currentSettings.notification.notifyCompleted !== undefined ? 
+            currentSettings.notification.notifyCompleted : false;
         document.getElementById('enable-sound').checked = 
             currentSettings.notification.enableSound !== undefined ? 
             currentSettings.notification.enableSound : true;
@@ -99,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 enableNotifications: document.getElementById('enable-notifications').checked,
                 notifyUpcoming: document.getElementById('notify-upcoming').checked,
                 notifyLive: document.getElementById('notify-live').checked,
+                notifyCompleted: document.getElementById('notify-completed').checked,
                 enableSound: document.getElementById('enable-sound').checked
             },
             discord: {

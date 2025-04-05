@@ -51,6 +51,9 @@ class NotificationManager {
         if (type === 'live' && !appSettings.notification.notifyLive) {
             return;
         }
+        if (type === 'completed' && !appSettings.notification.notifyCompleted) {
+            return;
+        }
 
         // すでに通知したビデオであれば通知しない
         if (this.notifiedVideos.has(stream.id)) {
@@ -63,8 +66,11 @@ class NotificationManager {
         if (type === 'live') {
             title = `${stream.snippet.channelTitle} がライブ配信中`;
             icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
-        } else {
+        } else if (type === 'upcoming') {
             title = `${stream.snippet.channelTitle} が配信予定`;
+            icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
+        } else if (type === 'completed') {
+            title = `${stream.snippet.channelTitle} の配信が終了しました`;
             icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
         }
 
@@ -114,6 +120,9 @@ class NotificationManager {
         if (type === 'live' && !appSettings.notification.notifyLive) {
             return;
         }
+        if (type === 'completed' && !appSettings.notification.notifyCompleted) {
+            return;
+        }
 
         // すでに通知したビデオであれば通知しない
         if (this.notifiedVideos.has(stream.id + '_discord')) {
@@ -124,13 +133,16 @@ class NotificationManager {
             const webhookUrl = appSettings.discord.webhookUrl;
             const username = appSettings.discord.username || 'YouTube配信通知';
             
-            // Embedの色（ライブ中は赤、予定は青）
-            const color = type === 'live' ? 0xFF0000 : 0x3498DB;
+            // Embedの色（ライブ中は赤、予定は青、終了はグレー）
+            const color = type === 'live' ? 0xFF0000 : 
+                         type === 'upcoming' ? 0x3498DB : 0x708090;
             
             // Embedのタイトル
             const title = type === 'live' 
                 ? `🔴 ライブ配信中: ${stream.snippet.title}`
-                : `🕒 配信予定: ${stream.snippet.title}`;
+                : type === 'upcoming'
+                ? `🕒 配信予定: ${stream.snippet.title}`
+                : `✓ 配信終了: ${stream.snippet.title}`;
             
             // 日時フォーマット
             let timeField = {};
@@ -146,6 +158,22 @@ class NotificationManager {
                 timeField = {
                     name: '配信開始時刻',
                     value: `<t:${Math.floor(startTime.getTime() / 1000)}:F>`,
+                    inline: true
+                };
+            } else if (type === 'completed') {
+                const endTime = new Date(stream.liveStreamingDetails.actualEndTime);
+                const startTime = new Date(stream.liveStreamingDetails.actualStartTime);
+                
+                const durationMs = endTime.getTime() - startTime.getTime();
+                const hours = Math.floor(durationMs / 3600000);
+                const minutes = Math.floor((durationMs % 3600000) / 60000);
+                const durationText = hours > 0 
+                    ? `${hours}時間${minutes}分` 
+                    : `${minutes}分`;
+                
+                timeField = {
+                    name: '配信終了時刻',
+                    value: `<t:${Math.floor(endTime.getTime() / 1000)}:F> (配信時間: ${durationText})`,
                     inline: true
                 };
             }
@@ -224,6 +252,7 @@ class NotificationManager {
                 enableNotifications: true,
                 notifyUpcoming: true,
                 notifyLive: true,
+                notifyCompleted: false,
                 enableSound: true
             },
             discord: {
@@ -277,17 +306,20 @@ class NotificationManager {
                 }
             },
             liveStreamingDetails: {
-                scheduledStartTime: new Date(Date.now() + 3600000).toISOString(),
-                actualStartTime: new Date().toISOString()
+                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(), // 2時間前に開始
+                actualStartTime: new Date(Date.now() - 7200000).toISOString(),
+                actualEndTime: new Date(Date.now() - 300000).toISOString(), // 5分前に終了
             }
         };
         
-        // テスト用通知を生成
-        this.sendBrowserNotification(testStream, 'live');
+        // テスト用に全タイプの通知を生成
+        const notificationTypes = ['upcoming', 'live', 'completed'];
+        const testType = notificationTypes[Math.floor(Math.random() * notificationTypes.length)];
+        this.sendBrowserNotification(testStream, testType);
         
         // 確認メッセージ
         setTimeout(() => {
-            alert('テスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。');
+            alert(`${testType}タイプのテスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。`);
         }, 500);
     }
 
