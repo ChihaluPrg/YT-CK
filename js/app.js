@@ -367,8 +367,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
-            // 過去の完了した配信を保存（新しく終了した配信を検出するため）
-            const previousCompletedIds = new Set(allStreams.completed.map(stream => stream.id));
+            // 前回のライブ配信IDを保存（終了検出用）
+            const previousLiveIds = new Set(allStreams.live.map(stream => stream.id));
             
             // ライブ配信をチェック
             const liveStreams = await youtubeAPI.fetchLiveStreams(channel.channelId);
@@ -382,8 +382,21 @@ document.addEventListener('DOMContentLoaded', () => {
             const completedStreams = await youtubeAPI.fetchCompletedLivestreams(channel.channelId);
             const filteredCompletedStreams = youtubeAPI.filterStreamsByKeywords(completedStreams, channel.keywords);
             
+            // 現在のライブIDリスト
+            const currentLiveIds = new Set(filteredLiveStreams.map(stream => stream.id));
+            
+            // 終了した配信を検出（前回はライブだったが今回はライブリストにない）
+            const endedStreamIds = [...previousLiveIds].filter(id => !currentLiveIds.has(id));
+            
+            // 終了した配信の詳細を完了リストから見つける
+            const endedStreams = filteredCompletedStreams.filter(stream => 
+                endedStreamIds.includes(stream.id) && 
+                stream.liveStreamingDetails && 
+                stream.liveStreamingDetails.actualEndTime
+            );
+            
             // 全配信データを更新
-            allStreams.live = [...allStreams.live, ...filteredLiveStreams];
+            allStreams.live = [...allStreams.live.filter(s => currentLiveIds.has(s.id)), ...filteredLiveStreams];
             allStreams.upcoming = [...allStreams.upcoming, ...filteredUpcomingStreams];
             allStreams.completed = [...allStreams.completed, ...filteredCompletedStreams];
             
@@ -396,11 +409,11 @@ document.addEventListener('DOMContentLoaded', () => {
             notificationManager.notifyNewStreams(filteredLiveStreams, 'live');
             notificationManager.notifyNewStreams(filteredUpcomingStreams, 'upcoming');
             
-            // 新しく終了した配信を検出して通知
-            const newlyCompletedStreams = filteredCompletedStreams.filter(
-                stream => !previousCompletedIds.has(stream.id)
-            );
-            notificationManager.notifyNewStreams(newlyCompletedStreams, 'completed');
+            // 新しく終了した配信を通知
+            if (endedStreams.length > 0) {
+                console.log('終了した配信を検出:', endedStreams.map(s => s.snippet.title));
+                notificationManager.notifyNewStreams(endedStreams, 'completed');
+            }
             
             // UI更新
             updateStreamsList(allStreams.live, liveStreamsContainer, false, false);
@@ -446,33 +459,68 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 全チャンネルをチェック
-    async function checkAllChannels() {
-        // 配信データをリセット
-        allStreams = {
-            upcoming: [],
-            live: [],
-            completed: []
-        };
-        
-        const channels = JSON.parse(localStorage.getItem('channels') || '[]');
-        
-        if (channels.length === 0) {
-            // チャンネルリストが空の場合はUIを更新
-            updateStreamsList([], upcomingStreamsContainer, true, false);
-            updateStreamsList([], liveStreamsContainer, false, false);
-            updateStreamsList([], completedStreamsContainer, false, true);
-            
-            // カレンダーも更新
-            if (calendarView.classList.contains('active')) {
-                updateCalendarView();
-            }
-            return;
+    // LocalStorageの容量を考慮して配信リストを管理
+    function limitStreamListSize(streams, maxSize = 100) {
+        if (streams.length <= maxSize) {
+            return streams;
         }
         
-        // チャンネルを順番にチェック
-        for (const channel of channels) {
-            await checkChannel(channel);
+        // 日付でソート（古い順）して古いものから削除
+        streams.sort((a, b) => {
+            const timeA = a.liveStreamingDetails.actualEndTime || 
+                          a.liveStreamingDetails.scheduledStartTime || 
+                          a.liveStreamingDetails.actualStartTime;
+            const timeB = b.liveStreamingDetails.actualEndTime || 
+                          b.liveStreamingDetails.scheduledStartTime || 
+                          b.liveStreamingDetails.actualStartTime;
+            return new Date(timeA) - new Date(timeB);
+        });
+        
+        // 最大サイズになるまで削除
+        return streams.slice(streams.length - maxSize);
+    }
+
+    // 全チャンネルをチェック
+    async function checkAllChannels() {
+        try {
+            // 配信データのバックアップを作成（終了検出用）
+            const previousLiveStreams = [...allStreams.live];
+            
+            // 配信データをリセット
+            allStreams = {
+                upcoming: [],
+                live: [],
+                completed: []
+            };
+            
+            const channels = JSON.parse(localStorage.getItem('channels') || '[]');
+            
+            if (channels.length === 0) {
+                // チャンネルリストが空の場合はUIを更新
+                updateStreamsList([], upcomingStreamsContainer, true, false);
+                updateStreamsList([], liveStreamsContainer, false, false);
+                updateStreamsList([], completedStreamsContainer, false, true);
+                
+                // カレンダーも更新
+                if (calendarView.classList.contains('active')) {
+                    updateCalendarView();
+                }
+                return;
+            }
+            
+            // チャンネルを順番にチェック
+            for (const channel of channels) {
+                await checkChannel(channel);
+            }
+            
+            // リストサイズを制限してLocalStorageの容量を節約
+            allStreams.completed = limitStreamListSize(allStreams.completed, 100);
+            allStreams.upcoming = limitStreamListSize(allStreams.upcoming, 50);
+            allStreams.live = limitStreamListSize(allStreams.live, 30);
+            
+        } catch (error) {
+            console.error('全チャンネルチェック中にエラーが発生しました:', error);
+            alert(`チェック中にエラーが発生しました: ${error.message}`);
         }
     }
 
@@ -495,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dateB = new Date(b.liveStreamingDetails.actualEndTime);
             } else {
                 dateA = new Date(a.liveStreamingDetails.actualStartTime || Date.now());
-                dateB = new Date(b.liveStreamingDetails.actualStartTime || Date.now());
+                dateB = new Date(a.liveStreamingDetails.actualStartTime || Date.now());
             }
             
             return isCompleted ? dateB - dateA : dateA - dateB; // 完了した配信は新しい順、それ以外は古い順

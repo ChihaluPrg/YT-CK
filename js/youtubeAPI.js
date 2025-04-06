@@ -128,13 +128,13 @@ class YouTubeAPI {
 
             const uploadsPlaylistId = channelData.items[0].contentDetails.relatedPlaylists.uploads;
 
-            // 最近のアップロードを取得（より多くを取得するため最大値を設定）
+            // より多くの動画を取得（最大50件）
             const playlistResponse = await this.fetchWithRetry(
                 `${this.baseUrl}playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50&key=${this.apiKey}`
             );
             const playlistData = await playlistResponse.json();
 
-            if (!playlistData.items) {
+            if (!playlistData.items || playlistData.items.length === 0) {
                 return [];
             }
 
@@ -151,16 +151,13 @@ class YouTubeAPI {
             );
             const videosData = await videosResponse.json();
 
-            // 一ヶ月前の日時を計算
-            const oneMonthAgo = new Date();
-            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-
-            // 完了したライブストリームのみをフィルタリング
+            // 完了したライブのみをフィルタリング（より正確な条件）
             const completedLivestreams = videosData.items.filter(video => 
                 video.snippet && 
                 video.liveStreamingDetails && 
-                video.liveStreamingDetails.actualEndTime &&
-                new Date(video.snippet.publishedAt) >= oneMonthAgo
+                video.liveStreamingDetails.actualEndTime &&  // 終了時間がある
+                (!video.liveStreamingDetails.actualStartTime || // 未開始でないことを確認
+                 new Date(video.liveStreamingDetails.actualEndTime) > new Date(video.liveStreamingDetails.actualStartTime))
             );
 
             return completedLivestreams;

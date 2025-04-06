@@ -1,10 +1,67 @@
 class NotificationManager {
     constructor() {
-        this.notifiedVideos = new Set();
+        // 通知済みビデオのリストを永続化するよう変更
+        this.notifiedVideos = this.loadNotifiedVideos();
         this.isNotificationSupported = 'Notification' in window;
         this.timeout = 10000; // 10秒タイムアウト
         this.retryCount = 2; // リトライ回数
         this.requestPermission();
+        
+        // 定期的に古い通知履歴を削除（24時間以上経過したもの）
+        this.cleanupNotifiedVideos();
+        setInterval(() => this.cleanupNotifiedVideos(), 3600000); // 1時間ごとにクリーンアップ
+    }
+
+    // 通知済みビデオリストをロード
+    loadNotifiedVideos() {
+        const saved = localStorage.getItem('notifiedVideos');
+        if (saved) {
+            try {
+                // 保存されているのはオブジェクト形式なのでSetに変換
+                const notifiedVideosObj = JSON.parse(saved);
+                const notifiedVideosWithTimestamp = new Map();
+                
+                // オブジェクトからMapに変換
+                Object.keys(notifiedVideosObj).forEach(key => {
+                    notifiedVideosWithTimestamp.set(key, notifiedVideosObj[key]);
+                });
+                
+                return notifiedVideosWithTimestamp;
+            } catch (e) {
+                console.error('通知履歴の読み込みに失敗しました:', e);
+                return new Map();
+            }
+        }
+        return new Map();
+    }
+
+    // 通知履歴を保存
+    saveNotifiedVideos() {
+        // Mapからオブジェクトへ変換
+        const notifiedVideosObj = {};
+        this.notifiedVideos.forEach((timestamp, id) => {
+            notifiedVideosObj[id] = timestamp;
+        });
+        
+        localStorage.setItem('notifiedVideos', JSON.stringify(notifiedVideosObj));
+    }
+
+    // 古い通知履歴をクリーンアップ
+    cleanupNotifiedVideos() {
+        const now = Date.now();
+        const expireTime = 24 * 60 * 60 * 1000; // 24時間
+        
+        let hasDeleted = false;
+        this.notifiedVideos.forEach((timestamp, id) => {
+            if (now - timestamp > expireTime) {
+                this.notifiedVideos.delete(id);
+                hasDeleted = true;
+            }
+        });
+        
+        if (hasDeleted) {
+            this.saveNotifiedVideos();
+        }
     }
 
     requestPermission() {
@@ -50,7 +107,8 @@ class NotificationManager {
             return;
         }
 
-        if (this.notifiedVideos.has(stream.id)) {
+        // すでに通知したビデオであれば通知しない
+        if (this.notifiedVideos.has(stream.id + '_' + type)) {
             return;
         }
 
@@ -87,11 +145,9 @@ class NotificationManager {
                 this.close();
             };
 
-            this.notifiedVideos.add(stream.id);
-            
-            setTimeout(() => {
-                this.notifiedVideos.delete(stream.id);
-            }, 24 * 60 * 60 * 1000);
+            // 通知済みとしてマーク
+            this.notifiedVideos.set(stream.id + '_' + type, Date.now());
+            this.saveNotifiedVideos();
         } catch (error) {
             console.error('ブラウザ通知の表示中にエラーが発生しました:', error);
         }
@@ -109,7 +165,8 @@ class NotificationManager {
             return;
         }
 
-        if (this.notifiedVideos.has(stream.id + '_discord')) {
+        // すでに通知したビデオであれば通知しない
+        if (this.notifiedVideos.has(stream.id + '_discord_' + type)) {
             return;
         }
 
@@ -196,11 +253,9 @@ class NotificationManager {
             
             await this.sendWebhookWithRetry(webhookUrl, data);
             
-            this.notifiedVideos.add(stream.id + '_discord');
-            
-            setTimeout(() => {
-                this.notifiedVideos.delete(stream.id + '_discord');
-            }, 24 * 60 * 60 * 1000);
+            // 通知済みとしてマーク（タイプごとに記録）
+            this.notifiedVideos.set(stream.id + '_discord_' + type, Date.now());
+            this.saveNotifiedVideos();
             
             console.log('Discord通知を送信しました:', title);
             
