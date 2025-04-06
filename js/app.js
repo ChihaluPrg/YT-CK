@@ -371,6 +371,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const previousLiveIds = new Set(allStreams.live.map(stream => stream.id));
             console.log('前回のライブ配信数:', previousLiveIds.size);
             
+            // 以前の完了済み配信IDを取得（比較用）
+            const previousCompletedIds = new Set(allStreams.completed.map(stream => stream.id));
+            
             // ライブ配信をチェック
             const liveStreams = await youtubeAPI.fetchLiveStreams(channel.channelId);
             const filteredLiveStreams = youtubeAPI.filterStreamsByKeywords(liveStreams, channel.keywords);
@@ -388,19 +391,31 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentLiveIds = new Set(filteredLiveStreams.map(stream => stream.id));
             console.log('現在のライブ配信数:', currentLiveIds.size);
             
-            // 終了した配信を検出（前回はライブだったが今回はライブリストにない）
+            // 終了した配信を検出（2つの方法で検出）
+            // 1. 前回はライブだったが今回はライブリストにない
             const endedStreamIds = [...previousLiveIds].filter(id => !currentLiveIds.has(id));
             
-            if (endedStreamIds.length > 0) {
-                console.log('終了した可能性のある配信を検出:', endedStreamIds.length, '件');
+            // 2. 新しく完了リストに追加されたもの
+            const currentCompletedIds = new Set(filteredCompletedStreams.map(stream => stream.id));
+            const newlyCompletedIds = [...currentCompletedIds].filter(id => 
+                !previousCompletedIds.has(id) && 
+                !currentLiveIds.has(id)  // 現在ライブ中ではない
+            );
+            
+            // 両方の検出方法で見つかったIDを統合
+            const allEndedIds = new Set([...endedStreamIds, ...newlyCompletedIds]);
+            
+            if (allEndedIds.size > 0) {
+                console.log('終了した可能性のある配信を検出:', allEndedIds.size, '件', [...allEndedIds]);
             }
             
-            // 終了した配信の詳細を完了リストから探して、完了時間があるものだけを対象とする
+            // 終了した配信の詳細を完了リストから探す
             const endedStreams = filteredCompletedStreams.filter(stream => 
-                endedStreamIds.includes(stream.id) && 
+                allEndedIds.has(stream.id) && 
                 stream.liveStreamingDetails && 
                 stream.liveStreamingDetails.actualEndTime &&
-                // 終了時間が現在から24時間以内のものだけを対象にする（古い配信の誤検出を防止）
+                stream.liveStreamingDetails.actualStartTime &&
+                // 終了時間が現在から24時間以内のものだけを対象にする
                 (Date.now() - new Date(stream.liveStreamingDetails.actualEndTime).getTime() < 24 * 60 * 60 * 1000)
             );
             
@@ -425,7 +440,10 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // 新しく終了した配信を通知
             if (endedStreams.length > 0) {
+                console.log('配信終了通知を送信します:', endedStreams.length, '件');
                 notificationManager.notifyNewStreams(endedStreams, 'completed');
+            } else {
+                console.log('通知対象の終了配信はありませんでした');
             }
             
             // UI更新

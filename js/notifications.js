@@ -107,25 +107,61 @@ class NotificationManager {
 
     canNotify() {
         const appSettings = this.getSettings();
-        return this.isNotificationSupported && 
+        const enabled = this.isNotificationSupported && 
                Notification.permission === 'granted' && 
                appSettings.notification.enableNotifications;
+        
+        if (!enabled) {
+            console.log('ブラウザ通知が無効: ', 
+                'サポート:', this.isNotificationSupported, 
+                '権限:', Notification.permission, 
+                '設定:', appSettings.notification.enableNotifications);
+        }
+        return enabled;
     }
 
     canNotifyDiscord() {
         const appSettings = this.getSettings();
-        return appSettings.discord && 
+        const enabled = appSettings.discord && 
                appSettings.discord.enableDiscord && 
                appSettings.discord.webhookUrl && 
                appSettings.discord.webhookUrl.trim() !== '';
+        
+        if (!enabled) {
+            console.log('Discord通知が無効: ',
+                'Discord設定あり:', !!appSettings.discord,
+                'Discord有効:', appSettings.discord?.enableDiscord,
+                'Webhook設定あり:', !!appSettings.discord?.webhookUrl);
+        }
+        return enabled;
     }
 
     notify(stream, type) {
-        // 配信終了通知の場合、特別な重複チェックを行う
+        // 配信終了通知の場合の特別処理
         if (type === 'completed') {
+            // 配信終了通知が有効かチェック
+            const appSettings = this.getSettings();
+            if (!appSettings.notification.notifyCompleted && !appSettings.discord?.enableDiscord) {
+                console.log('配信終了通知がすべて無効です。設定画面で有効にしてください。');
+                // デバッグボタンを動的に追加（一時的な機能）
+                this.showNotificationStatusAlert();
+                return;
+            }
+            
             // すでに通知済みの終了配信なら通知しない
             if (this.completedStreamIds.has(stream.id)) {
                 console.log('配信終了通知をスキップ: すでに通知済み', stream.snippet.title);
+                return;
+            }
+            
+            // 必要なデータがあるか確認
+            if (!stream.liveStreamingDetails || 
+                !stream.liveStreamingDetails.actualEndTime ||
+                !stream.liveStreamingDetails.actualStartTime) {
+                console.warn('配信終了通知をスキップ: 必要なデータがありません', 
+                    stream.snippet.title,
+                    'EndTime:', stream.liveStreamingDetails?.actualEndTime,
+                    'StartTime:', stream.liveStreamingDetails?.actualStartTime);
                 return;
             }
             
@@ -135,32 +171,84 @@ class NotificationManager {
             console.log('新しい終了配信を通知:', stream.snippet.title);
         }
         
+        const notificationSent = {
+            browser: false,
+            discord: false
+        };
+        
         if (this.canNotify()) {
-            this.sendBrowserNotification(stream, type);
+            notificationSent.browser = this.sendBrowserNotification(stream, type);
         }
         
         if (this.canNotifyDiscord()) {
-            this.sendDiscordNotification(stream, type);
+            this.sendDiscordNotification(stream, type)
+                .then(sent => { notificationSent.discord = sent; });
         }
+        
+        // どの通知も送信されなかった場合のみ警告
+        setTimeout(() => {
+            if (!notificationSent.browser && !notificationSent.discord) {
+                console.warn('どの通知方法でも送信できませんでした:', type, stream.snippet.title);
+                
+                // 配信終了通知の場合は特別な警告
+                if (type === 'completed') {
+                    this.showNotificationStatusAlert();
+                }
+            }
+        }, 500);
+    }
+
+    // 通知状態を確認できるアラートを表示
+    showNotificationStatusAlert() {
+        const appSettings = this.getSettings();
+        if (this._alertShown) return; // 一度だけ表示
+        
+        this._alertShown = true;
+        const status = `
+配信終了通知の状態:
+- ブラウザ通知: ${appSettings.notification.notifyCompleted ? '有効' : '無効'} 
+  (通知全般: ${appSettings.notification.enableNotifications ? '有効' : '無効'})
+- Discord通知: ${appSettings.discord?.enableDiscord ? '有効' : '無効'}
+  (Webhook: ${appSettings.discord?.webhookUrl ? '設定済み' : '未設定'})
+
+設定画面で「配信終了の通知」を有効にすると通知されます。
+        `;
+        
+        console.info('通知設定状態:', status);
+        
+        // 5秒後にアラート（すぐ表示すると邪魔になるため）
+        setTimeout(() => {
+            const showAlert = confirm(
+                "配信終了の通知が無効です。設定画面で有効にしますか？\n" +
+                "「OK」をクリックすると設定画面を開きます。"
+            );
+            if (showAlert) {
+                document.getElementById('settings-button').click();
+                document.querySelector('.settings-tab[data-tab="notification"]').click();
+            }
+        }, 5000);
     }
 
     sendBrowserNotification(stream, type) {
         const appSettings = this.getSettings();
         if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
-            return;
+            console.log('配信予定通知は無効なのでスキップします');
+            return false;
         }
         if (type === 'live' && !appSettings.notification.notifyLive) {
-            return;
+            console.log('ライブ配信通知は無効なのでスキップします');
+            return false;
         }
         if (type === 'completed' && !appSettings.notification.notifyCompleted) {
-            return;
+            console.log('配信終了通知は無効なのでスキップします');
+            return false;
         }
 
         // すでに通知したビデオであれば通知しない（タイプごとに管理）
         const notificationId = `${stream.id}_${type}`;
         if (this.notifiedVideos.has(notificationId)) {
             console.log('ブラウザ通知をスキップ:', type, stream.snippet.title);
-            return;
+            return false;
         }
 
         let title, icon;
@@ -199,28 +287,33 @@ class NotificationManager {
             // 通知済みとしてマーク
             this.notifiedVideos.set(notificationId, Date.now());
             this.saveNotifiedVideos();
+            return true;
         } catch (error) {
             console.error('ブラウザ通知の表示中にエラーが発生しました:', error);
+            return false;
         }
     }
 
     async sendDiscordNotification(stream, type) {
         const appSettings = this.getSettings();
         if (type === 'upcoming' && !appSettings.notification.notifyUpcoming) {
-            return;
+            console.log('配信予定Discord通知は無効なのでスキップします');
+            return false;
         }
         if (type === 'live' && !appSettings.notification.notifyLive) {
-            return;
+            console.log('ライブ配信Discord通知は無効なのでスキップします');
+            return false;
         }
         if (type === 'completed' && !appSettings.notification.notifyCompleted) {
-            return;
+            console.log('配信終了Discord通知は無効なのでスキップします');
+            return false;
         }
 
         // すでに通知したビデオであれば通知しない（タイプごとに管理）
         const notificationId = `${stream.id}_discord_${type}`;
         if (this.notifiedVideos.has(notificationId)) {
             console.log('Discord通知をスキップ:', type, stream.snippet.title);
-            return;
+            return false;
         }
 
         try {
@@ -311,9 +404,10 @@ class NotificationManager {
             this.saveNotifiedVideos();
             
             console.log('Discord通知を送信しました:', title);
-            
+            return true;
         } catch (error) {
             console.error('Discord通知の送信中にエラーが発生しました:', error);
+            return false;
         }
     }
     
@@ -411,6 +505,7 @@ class NotificationManager {
             return;
         }
         
+        // テスト用のダミーデータ
         const testStream = {
             id: 'test-' + Date.now(),
             snippet: {
@@ -428,18 +523,39 @@ class NotificationManager {
                 }
             },
             liveStreamingDetails: {
-                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(),
-                actualStartTime: new Date(Date.now() - 7200000).toISOString(),
-                actualEndTime: new Date(Date.now() - 300000).toISOString(),
+                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(), // 2時間前
+                actualStartTime: new Date(Date.now() - 7200000).toISOString(),    // 2時間前
+                actualEndTime: new Date(Date.now() - 300000).toISOString(),       // 5分前
             }
         };
         
-        const notificationTypes = ['upcoming', 'live', 'completed'];
-        const testType = notificationTypes[Math.floor(Math.random() * notificationTypes.length)];
-        this.sendBrowserNotification(testStream, testType);
+        // 設定を確認して、有効なタイプだけをテスト
+        const appSettings = this.getSettings();
+        const availableTypes = [];
+        
+        if (appSettings.notification.notifyUpcoming) availableTypes.push('upcoming');
+        if (appSettings.notification.notifyLive) availableTypes.push('live');
+        if (appSettings.notification.notifyCompleted) availableTypes.push('completed');
+        
+        if (availableTypes.length === 0) {
+            alert('通知設定がすべて無効になっています。設定画面で通知を有効にしてください。');
+            return;
+        }
+        
+        // 有効なタイプからランダムに選択
+        const testType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
+        
+        // 選んだタイプでテスト通知を送信
+        const sent = this.sendBrowserNotification(testStream, testType);
         
         setTimeout(() => {
-            alert(`${testType}タイプのテスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。`);
+            if (sent) {
+                alert(`${testType}タイプのテスト通知を送信しました。通知が表示されない場合は、ブラウザの設定を確認してください。`);
+            } else {
+                alert(`通知の送信に失敗しました。通知設定を確認してください。
+選択されたタイプ: ${testType}
+有効な通知タイプ: ${availableTypes.join(', ')}`);
+            }
         }, 500);
     }
 
