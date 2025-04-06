@@ -2,6 +2,8 @@ class NotificationManager {
     constructor() {
         // 通知済みビデオのリストを永続化するよう変更
         this.notifiedVideos = this.loadNotifiedVideos();
+        // 終了済み配信IDを別途管理（重複通知防止用）
+        this.completedStreamIds = this.loadCompletedStreamIds();
         this.isNotificationSupported = 'Notification' in window;
         this.timeout = 10000; // 10秒タイムアウト
         this.retryCount = 2; // リトライ回数
@@ -10,6 +12,10 @@ class NotificationManager {
         // 定期的に古い通知履歴を削除（24時間以上経過したもの）
         this.cleanupNotifiedVideos();
         setInterval(() => this.cleanupNotifiedVideos(), 3600000); // 1時間ごとにクリーンアップ
+        
+        console.log('NotificationManager: 初期化完了', 
+                   '通知履歴数:', this.notifiedVideos.size,
+                   '終了済み配信数:', this.completedStreamIds.size);
     }
 
     // 通知済みビデオリストをロード
@@ -33,6 +39,26 @@ class NotificationManager {
             }
         }
         return new Map();
+    }
+
+    // 終了済み配信IDをロード
+    loadCompletedStreamIds() {
+        const saved = localStorage.getItem('completedStreamIds');
+        if (saved) {
+            try {
+                return new Set(JSON.parse(saved));
+            } catch (e) {
+                console.error('終了済み配信履歴の読み込みに失敗しました:', e);
+                return new Set();
+            }
+        }
+        return new Set();
+    }
+    
+    // 終了済み配信IDを保存
+    saveCompletedStreamIds() {
+        localStorage.setItem('completedStreamIds', 
+                           JSON.stringify([...this.completedStreamIds]));
     }
 
     // 通知履歴を保存
@@ -62,6 +88,15 @@ class NotificationManager {
         if (hasDeleted) {
             this.saveNotifiedVideos();
         }
+
+        // 終了済み配信IDも定期的にクリーンアップ（数が多すぎる場合）
+        if (this.completedStreamIds.size > 500) {
+            console.log('終了済み配信IDが多すぎるためクリーンアップします', this.completedStreamIds.size);
+            // 最新の300件だけを保持
+            const idsArray = [...this.completedStreamIds];
+            this.completedStreamIds = new Set(idsArray.slice(idsArray.length - 300));
+            this.saveCompletedStreamIds();
+        }
     }
 
     requestPermission() {
@@ -86,6 +121,20 @@ class NotificationManager {
     }
 
     notify(stream, type) {
+        // 配信終了通知の場合、特別な重複チェックを行う
+        if (type === 'completed') {
+            // すでに通知済みの終了配信なら通知しない
+            if (this.completedStreamIds.has(stream.id)) {
+                console.log('配信終了通知をスキップ: すでに通知済み', stream.snippet.title);
+                return;
+            }
+            
+            // 終了済み配信としてマーク
+            this.completedStreamIds.add(stream.id);
+            this.saveCompletedStreamIds();
+            console.log('新しい終了配信を通知:', stream.snippet.title);
+        }
+        
         if (this.canNotify()) {
             this.sendBrowserNotification(stream, type);
         }
@@ -107,8 +156,10 @@ class NotificationManager {
             return;
         }
 
-        // すでに通知したビデオであれば通知しない
-        if (this.notifiedVideos.has(stream.id + '_' + type)) {
+        // すでに通知したビデオであれば通知しない（タイプごとに管理）
+        const notificationId = `${stream.id}_${type}`;
+        if (this.notifiedVideos.has(notificationId)) {
+            console.log('ブラウザ通知をスキップ:', type, stream.snippet.title);
             return;
         }
 
@@ -146,7 +197,7 @@ class NotificationManager {
             };
 
             // 通知済みとしてマーク
-            this.notifiedVideos.set(stream.id + '_' + type, Date.now());
+            this.notifiedVideos.set(notificationId, Date.now());
             this.saveNotifiedVideos();
         } catch (error) {
             console.error('ブラウザ通知の表示中にエラーが発生しました:', error);
@@ -165,8 +216,10 @@ class NotificationManager {
             return;
         }
 
-        // すでに通知したビデオであれば通知しない
-        if (this.notifiedVideos.has(stream.id + '_discord_' + type)) {
+        // すでに通知したビデオであれば通知しない（タイプごとに管理）
+        const notificationId = `${stream.id}_discord_${type}`;
+        if (this.notifiedVideos.has(notificationId)) {
+            console.log('Discord通知をスキップ:', type, stream.snippet.title);
             return;
         }
 
@@ -254,7 +307,7 @@ class NotificationManager {
             await this.sendWebhookWithRetry(webhookUrl, data);
             
             // 通知済みとしてマーク（タイプごとに記録）
-            this.notifiedVideos.set(stream.id + '_discord_' + type, Date.now());
+            this.notifiedVideos.set(notificationId, Date.now());
             this.saveNotifiedVideos();
             
             console.log('Discord通知を送信しました:', title);
