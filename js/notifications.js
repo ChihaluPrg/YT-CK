@@ -2,8 +2,6 @@ class NotificationManager {
     constructor() {
         // 通知済みビデオのリストを永続化するよう変更
         this.notifiedVideos = this.loadNotifiedVideos();
-        // 終了済み配信IDを別途管理（重複通知防止用）
-        this.completedStreamIds = this.loadCompletedStreamIds();
         this.isNotificationSupported = 'Notification' in window;
         this.timeout = 10000; // 10秒タイムアウト
         this.retryCount = 2; // リトライ回数
@@ -14,8 +12,7 @@ class NotificationManager {
         setInterval(() => this.cleanupNotifiedVideos(), 3600000); // 1時間ごとにクリーンアップ
         
         console.log('NotificationManager: 初期化完了', 
-                   '通知履歴数:', this.notifiedVideos.size,
-                   '終了済み配信数:', this.completedStreamIds.size);
+                   '通知履歴数:', this.notifiedVideos.size);
     }
 
     // 通知済みビデオリストをロード
@@ -23,11 +20,9 @@ class NotificationManager {
         const saved = localStorage.getItem('notifiedVideos');
         if (saved) {
             try {
-                // 保存されているのはオブジェクト形式なのでSetに変換
                 const notifiedVideosObj = JSON.parse(saved);
                 const notifiedVideosWithTimestamp = new Map();
                 
-                // オブジェクトからMapに変換
                 Object.keys(notifiedVideosObj).forEach(key => {
                     notifiedVideosWithTimestamp.set(key, notifiedVideosObj[key]);
                 });
@@ -41,29 +36,8 @@ class NotificationManager {
         return new Map();
     }
 
-    // 終了済み配信IDをロード
-    loadCompletedStreamIds() {
-        const saved = localStorage.getItem('completedStreamIds');
-        if (saved) {
-            try {
-                return new Set(JSON.parse(saved));
-            } catch (e) {
-                console.error('終了済み配信履歴の読み込みに失敗しました:', e);
-                return new Set();
-            }
-        }
-        return new Set();
-    }
-    
-    // 終了済み配信IDを保存
-    saveCompletedStreamIds() {
-        localStorage.setItem('completedStreamIds', 
-                           JSON.stringify([...this.completedStreamIds]));
-    }
-
     // 通知履歴を保存
     saveNotifiedVideos() {
-        // Mapからオブジェクトへ変換
         const notifiedVideosObj = {};
         this.notifiedVideos.forEach((timestamp, id) => {
             notifiedVideosObj[id] = timestamp;
@@ -87,15 +61,6 @@ class NotificationManager {
         
         if (hasDeleted) {
             this.saveNotifiedVideos();
-        }
-
-        // 終了済み配信IDも定期的にクリーンアップ（数が多すぎる場合）
-        if (this.completedStreamIds.size > 500) {
-            console.log('終了済み配信IDが多すぎるためクリーンアップします', this.completedStreamIds.size);
-            // 最新の300件だけを保持
-            const idsArray = [...this.completedStreamIds];
-            this.completedStreamIds = new Set(idsArray.slice(idsArray.length - 300));
-            this.saveCompletedStreamIds();
         }
     }
 
@@ -137,40 +102,6 @@ class NotificationManager {
     }
 
     notify(stream, type) {
-        // 配信終了通知の場合の特別処理
-        if (type === 'completed') {
-            // 配信終了通知が有効かチェック
-            const appSettings = this.getSettings();
-            if (!appSettings.notification.notifyCompleted && !appSettings.discord?.enableDiscord) {
-                console.log('配信終了通知がすべて無効です。設定画面で有効にしてください。');
-                // デバッグボタンを動的に追加（一時的な機能）
-                this.showNotificationStatusAlert();
-                return;
-            }
-            
-            // すでに通知済みの終了配信なら通知しない
-            if (this.completedStreamIds.has(stream.id)) {
-                console.log('配信終了通知をスキップ: すでに通知済み', stream.snippet.title);
-                return;
-            }
-            
-            // 必要なデータがあるか確認
-            if (!stream.liveStreamingDetails || 
-                !stream.liveStreamingDetails.actualEndTime ||
-                !stream.liveStreamingDetails.actualStartTime) {
-                console.warn('配信終了通知をスキップ: 必要なデータがありません', 
-                    stream.snippet.title,
-                    'EndTime:', stream.liveStreamingDetails?.actualEndTime,
-                    'StartTime:', stream.liveStreamingDetails?.actualStartTime);
-                return;
-            }
-            
-            // 終了済み配信としてマーク
-            this.completedStreamIds.add(stream.id);
-            this.saveCompletedStreamIds();
-            console.log('新しい終了配信を通知:', stream.snippet.title);
-        }
-        
         const notificationSent = {
             browser: false,
             discord: false
@@ -184,49 +115,6 @@ class NotificationManager {
             this.sendDiscordNotification(stream, type)
                 .then(sent => { notificationSent.discord = sent; });
         }
-        
-        // どの通知も送信されなかった場合のみ警告
-        setTimeout(() => {
-            if (!notificationSent.browser && !notificationSent.discord) {
-                console.warn('どの通知方法でも送信できませんでした:', type, stream.snippet.title);
-                
-                // 配信終了通知の場合は特別な警告
-                if (type === 'completed') {
-                    this.showNotificationStatusAlert();
-                }
-            }
-        }, 500);
-    }
-
-    // 通知状態を確認できるアラートを表示
-    showNotificationStatusAlert() {
-        const appSettings = this.getSettings();
-        if (this._alertShown) return; // 一度だけ表示
-        
-        this._alertShown = true;
-        const status = `
-配信終了通知の状態:
-- ブラウザ通知: ${appSettings.notification.notifyCompleted ? '有効' : '無効'} 
-  (通知全般: ${appSettings.notification.enableNotifications ? '有効' : '無効'})
-- Discord通知: ${appSettings.discord?.enableDiscord ? '有効' : '無効'}
-  (Webhook: ${appSettings.discord?.webhookUrl ? '設定済み' : '未設定'})
-
-設定画面で「配信終了の通知」を有効にすると通知されます。
-        `;
-        
-        console.info('通知設定状態:', status);
-        
-        // 5秒後にアラート（すぐ表示すると邪魔になるため）
-        setTimeout(() => {
-            const showAlert = confirm(
-                "配信終了の通知が無効です。設定画面で有効にしますか？\n" +
-                "「OK」をクリックすると設定画面を開きます。"
-            );
-            if (showAlert) {
-                document.getElementById('settings-button').click();
-                document.querySelector('.settings-tab[data-tab="notification"]').click();
-            }
-        }, 5000);
     }
 
     sendBrowserNotification(stream, type) {
@@ -239,12 +127,7 @@ class NotificationManager {
             console.log('ライブ配信通知は無効なのでスキップします');
             return false;
         }
-        if (type === 'completed' && !appSettings.notification.notifyCompleted) {
-            console.log('配信終了通知は無効なのでスキップします');
-            return false;
-        }
 
-        // すでに通知したビデオであれば通知しない（タイプごとに管理）
         const notificationId = `${stream.id}_${type}`;
         if (this.notifiedVideos.has(notificationId)) {
             console.log('ブラウザ通知をスキップ:', type, stream.snippet.title);
@@ -258,9 +141,6 @@ class NotificationManager {
             icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
         } else if (type === 'upcoming') {
             title = `${stream.snippet.channelTitle} が配信予定`;
-            icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
-        } else if (type === 'completed') {
-            title = `${stream.snippet.channelTitle} の配信が終了しました`;
             icon = 'https://www.youtube.com/s/desktop/e4d15d2c/img/favicon_144x144.png';
         }
 
@@ -284,7 +164,6 @@ class NotificationManager {
                 this.close();
             };
 
-            // 通知済みとしてマーク
             this.notifiedVideos.set(notificationId, Date.now());
             this.saveNotifiedVideos();
             return true;
@@ -304,12 +183,7 @@ class NotificationManager {
             console.log('ライブ配信Discord通知は無効なのでスキップします');
             return false;
         }
-        if (type === 'completed' && !appSettings.notification.notifyCompleted) {
-            console.log('配信終了Discord通知は無効なのでスキップします');
-            return false;
-        }
 
-        // すでに通知したビデオであれば通知しない（タイプごとに管理）
         const notificationId = `${stream.id}_discord_${type}`;
         if (this.notifiedVideos.has(notificationId)) {
             console.log('Discord通知をスキップ:', type, stream.snippet.title);
@@ -325,13 +199,10 @@ class NotificationManager {
             }
             
             const username = appSettings.discord.username || 'YouTube配信通知';
-            const color = type === 'live' ? 0xFF0000 : 
-                         type === 'upcoming' ? 0x3498DB : 0x708090;
+            const color = type === 'live' ? 0xFF0000 : 0x3498DB;
             const title = type === 'live' 
                 ? `🔴 ライブ配信中: ${stream.snippet.title}`
-                : type === 'upcoming'
-                ? `🕒 配信予定: ${stream.snippet.title}`
-                : `✓ 配信終了: ${stream.snippet.title}`;
+                : `🕒 配信予定: ${stream.snippet.title}`;
             
             let timeField = {};
             if (type === 'upcoming' && stream.liveStreamingDetails.scheduledStartTime) {
@@ -346,22 +217,6 @@ class NotificationManager {
                 timeField = {
                     name: '配信開始時刻',
                     value: `<t:${Math.floor(startTime.getTime() / 1000)}:F>`,
-                    inline: true
-                };
-            } else if (type === 'completed') {
-                const endTime = new Date(stream.liveStreamingDetails.actualEndTime);
-                const startTime = new Date(stream.liveStreamingDetails.actualStartTime);
-                
-                const durationMs = endTime.getTime() - startTime.getTime();
-                const hours = Math.floor(durationMs / 3600000);
-                const minutes = Math.floor((durationMs % 3600000) / 60000);
-                const durationText = hours > 0 
-                    ? `${hours}時間${minutes}分` 
-                    : `${minutes}分`;
-                
-                timeField = {
-                    name: '配信終了時刻',
-                    value: `<t:${Math.floor(endTime.getTime() / 1000)}:F> (配信時間: ${durationText})`,
                     inline: true
                 };
             }
@@ -399,7 +254,6 @@ class NotificationManager {
             
             await this.sendWebhookWithRetry(webhookUrl, data);
             
-            // 通知済みとしてマーク（タイプごとに記録）
             this.notifiedVideos.set(notificationId, Date.now());
             this.saveNotifiedVideos();
             
@@ -470,7 +324,6 @@ class NotificationManager {
                 enableNotifications: true,
                 notifyUpcoming: true,
                 notifyLive: true,
-                notifyCompleted: false,
                 enableSound: true
             },
             discord: {
@@ -505,7 +358,6 @@ class NotificationManager {
             return;
         }
         
-        // テスト用のダミーデータ
         const testStream = {
             id: 'test-' + Date.now(),
             snippet: {
@@ -523,29 +375,24 @@ class NotificationManager {
                 }
             },
             liveStreamingDetails: {
-                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(), // 2時間前
-                actualStartTime: new Date(Date.now() - 7200000).toISOString(),    // 2時間前
-                actualEndTime: new Date(Date.now() - 300000).toISOString(),       // 5分前
+                scheduledStartTime: new Date(Date.now() - 7200000).toISOString(),
+                actualStartTime: new Date(Date.now() - 7200000).toISOString(),
             }
         };
         
-        // 設定を確認して、有効なタイプだけをテスト
         const appSettings = this.getSettings();
         const availableTypes = [];
         
         if (appSettings.notification.notifyUpcoming) availableTypes.push('upcoming');
         if (appSettings.notification.notifyLive) availableTypes.push('live');
-        if (appSettings.notification.notifyCompleted) availableTypes.push('completed');
         
         if (availableTypes.length === 0) {
             alert('通知設定がすべて無効になっています。設定画面で通知を有効にしてください。');
             return;
         }
         
-        // 有効なタイプからランダムに選択
         const testType = availableTypes[Math.floor(Math.random() * availableTypes.length)];
         
-        // 選んだタイプでテスト通知を送信
         const sent = this.sendBrowserNotification(testStream, testType);
         
         setTimeout(() => {

@@ -653,6 +653,20 @@ button:hover {
     margin-bottom: 0;
 }
 
+.setting-item input[type="number"] {
+    width: 80px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.setting-item small {
+    display: block;
+    color: #666;
+    margin-top: 5px;
+    margin-left: 200px; /* ラベルの幅に合わせる */
+}
+
 /* 通知テストボタン用スタイル */
 .notification-test {
     margin-top: 20px;

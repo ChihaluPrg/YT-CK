@@ -359,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
         channelItem.remove();
     }
 
-    // チャンネルのライブ配信と配信予定、配信終了をチェック
+    // チャンネルのライブ配信と配信予定をチェック（配信終了チェックを削除）
     async function checkChannel(channel) {
         if (!youtubeAPI.apiKey) {
             alert('YouTube API キーを設定してください');
@@ -367,13 +367,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         try {
-            // 前回のライブ配信IDを保存（終了検出用）
-            const previousLiveIds = new Set(allStreams.live.map(stream => stream.id));
-            console.log('前回のライブ配信数:', previousLiveIds.size);
-            
-            // 以前の完了済み配信IDを取得（比較用）
-            const previousCompletedIds = new Set(allStreams.completed.map(stream => stream.id));
-            
             // ライブ配信をチェック
             const liveStreams = await youtubeAPI.fetchLiveStreams(channel.channelId);
             const filteredLiveStreams = youtubeAPI.filterStreamsByKeywords(liveStreams, channel.keywords);
@@ -383,49 +376,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const upcomingStreams = await youtubeAPI.fetchUpcomingLivestreams(channel.channelId);
             const filteredUpcomingStreams = youtubeAPI.filterStreamsByKeywords(upcomingStreams, channel.keywords);
             
-            // 過去の配信をチェック
+            // 過去の配信はUIのために取得するが、通知には使用しない
             const completedStreams = await youtubeAPI.fetchCompletedLivestreams(channel.channelId);
             const filteredCompletedStreams = youtubeAPI.filterStreamsByKeywords(completedStreams, channel.keywords);
             
-            // 現在のライブIDリスト
-            const currentLiveIds = new Set(filteredLiveStreams.map(stream => stream.id));
-            console.log('現在のライブ配信数:', currentLiveIds.size);
-            
-            // 終了した配信を検出（2つの方法で検出）
-            // 1. 前回はライブだったが今回はライブリストにない
-            const endedStreamIds = [...previousLiveIds].filter(id => !currentLiveIds.has(id));
-            
-            // 2. 新しく完了リストに追加されたもの
-            const currentCompletedIds = new Set(filteredCompletedStreams.map(stream => stream.id));
-            const newlyCompletedIds = [...currentCompletedIds].filter(id => 
-                !previousCompletedIds.has(id) && 
-                !currentLiveIds.has(id)  // 現在ライブ中ではない
-            );
-            
-            // 両方の検出方法で見つかったIDを統合
-            const allEndedIds = new Set([...endedStreamIds, ...newlyCompletedIds]);
-            
-            if (allEndedIds.size > 0) {
-                console.log('終了した可能性のある配信を検出:', allEndedIds.size, '件', [...allEndedIds]);
-            }
-            
-            // 終了した配信の詳細を完了リストから探す
-            const endedStreams = filteredCompletedStreams.filter(stream => 
-                allEndedIds.has(stream.id) && 
-                stream.liveStreamingDetails && 
-                stream.liveStreamingDetails.actualEndTime &&
-                stream.liveStreamingDetails.actualStartTime &&
-                // 終了時間が現在から24時間以内のものだけを対象にする
-                (Date.now() - new Date(stream.liveStreamingDetails.actualEndTime).getTime() < 24 * 60 * 60 * 1000)
-            );
-            
-            if (endedStreams.length > 0) {
-                console.log('通知対象の終了配信:', endedStreams.length, '件',
-                           endedStreams.map(s => s.snippet.title));
-            }
-            
             // 全配信データを更新
-            allStreams.live = [...allStreams.live.filter(s => currentLiveIds.has(s.id)), ...filteredLiveStreams];
+            allStreams.live = [...allStreams.live, ...filteredLiveStreams];
             allStreams.upcoming = [...allStreams.upcoming, ...filteredUpcomingStreams];
             allStreams.completed = [...allStreams.completed, ...filteredCompletedStreams];
             
@@ -437,14 +393,6 @@ document.addEventListener('DOMContentLoaded', () => {
             // 新しい配信を通知
             notificationManager.notifyNewStreams(filteredLiveStreams, 'live');
             notificationManager.notifyNewStreams(filteredUpcomingStreams, 'upcoming');
-            
-            // 新しく終了した配信を通知
-            if (endedStreams.length > 0) {
-                console.log('配信終了通知を送信します:', endedStreams.length, '件');
-                notificationManager.notifyNewStreams(endedStreams, 'completed');
-            } else {
-                console.log('通知対象の終了配信はありませんでした');
-            }
             
             // UI更新
             updateStreamsList(allStreams.live, liveStreamsContainer, false, false);
@@ -514,9 +462,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // 全チャンネルをチェック
     async function checkAllChannels() {
         try {
-            // 配信データのバックアップを作成（終了検出用）
-            const previousLiveStreams = [...allStreams.live];
-            
             // 配信データをリセット
             allStreams = {
                 upcoming: [],
@@ -697,11 +642,33 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(checkIntervalId);
         }
         
-        const interval = parseInt(localStorage.getItem('checkInterval') || '30', 10);
+        // まず設定から間隔を取得し、なければローカルストレージから取得
+        const settingsInterval = getSettingValue('general.checkInterval', null);
+        const interval = settingsInterval || parseInt(localStorage.getItem('checkInterval') || '30', 10);
+        
+        // 入力フィールドにも反映
         checkIntervalInput.value = interval;
         
         // 新しいタイマーを設定（分をミリ秒に変換）
         checkIntervalId = setInterval(checkAllChannels, interval * 60 * 1000);
+        
+        console.log(`チェック間隔を${interval}分に設定しました`);
+    }
+
+    // チェック間隔を更新する関数（外部から呼び出し可能）
+    function updateCheckInterval(interval) {
+        if (interval < 5) interval = 5; // 最低5分は確保
+        
+        // ローカルストレージに保存
+        localStorage.setItem('checkInterval', interval);
+        
+        // 入力フィールドにも反映
+        checkIntervalInput.value = interval;
+        
+        // チェックタイマーを再設定
+        setupPeriodicCheck();
+        
+        console.log(`チェック間隔を${interval}分に更新しました`);
     }
 
     // 今すぐチェックボタンのイベントリスナー
@@ -743,4 +710,5 @@ document.addEventListener('DOMContentLoaded', () => {
     // 外部からアクセスできるようにグローバルに公開
     window.checkChannel = checkChannel;
     window.removeChannel = removeChannel;
+    window.updateCheckInterval = updateCheckInterval; // チェック間隔更新関数を公開
 });

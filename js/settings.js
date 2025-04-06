@@ -24,13 +24,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const defaultSettings = {
         general: {
             defaultView: 'calendar',
-            autoCheck: true
+            autoCheck: true,
+            checkInterval: 30 // チェック間隔のデフォルト値
         },
         notification: {
             enableNotifications: true,
             notifyUpcoming: true,
             notifyLive: true,
-            notifyCompleted: false,
             enableSound: true
         },
         discord: {
@@ -68,13 +68,14 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('default-view').value = currentSettings.general.defaultView;
         document.getElementById('auto-check').checked = currentSettings.general.autoCheck;
         
+        // チェック間隔の設定
+        const checkInterval = currentSettings.general.checkInterval || 30;
+        document.getElementById('check-interval-setting').value = checkInterval;
+        
         // 通知設定
         document.getElementById('enable-notifications').checked = currentSettings.notification.enableNotifications;
         document.getElementById('notify-upcoming').checked = currentSettings.notification.notifyUpcoming;
         document.getElementById('notify-live').checked = currentSettings.notification.notifyLive;
-        document.getElementById('notify-completed').checked = 
-            currentSettings.notification.notifyCompleted !== undefined ? 
-            currentSettings.notification.notifyCompleted : false;
         document.getElementById('enable-sound').checked = 
             currentSettings.notification.enableSound !== undefined ? 
             currentSettings.notification.enableSound : true;
@@ -97,13 +98,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return {
             general: {
                 defaultView: document.getElementById('default-view').value,
-                autoCheck: document.getElementById('auto-check').checked
+                autoCheck: document.getElementById('auto-check').checked,
+                checkInterval: parseInt(document.getElementById('check-interval-setting').value, 10) || 30
             },
             notification: {
                 enableNotifications: document.getElementById('enable-notifications').checked,
                 notifyUpcoming: document.getElementById('notify-upcoming').checked,
                 notifyLive: document.getElementById('notify-live').checked,
-                notifyCompleted: document.getElementById('notify-completed').checked,
                 enableSound: document.getElementById('enable-sound').checked
             },
             discord: {
@@ -151,6 +152,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // チャンネルリストを折りたたむ
             const sectionId = channelsSection.classList[0];
             toggleSection(channelsSection, sectionId);
+        }
+        
+        // チェック間隔の設定を反映
+        const checkInterval = currentSettings.general.checkInterval || 30;
+        if (window.updateCheckInterval) {
+            window.updateCheckInterval(checkInterval);
         }
     }
     
@@ -326,7 +333,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === settingsModal) {
             settingsModal.style.display = 'none';
             document.body.style.overflow = '';
-        }
+        });
     });
     
     // 設定タブの切り替え
