@@ -233,8 +233,9 @@
     <script src="js/notifications.js"></script>
     <script src="js/app.js"></script>
     <script src="js/settings.js"></script>
+    <script src="js/direct-listeners.js"></script>
 
-    <!-- デバッグ用のスクリプト - 拡張して設定状態を確認できるようにする -->
+    <!-- デバッグ用のスクリプト -->
     <script>
         // ページロード時に設定ボタンが存在するか確認
         window.addEventListener('load', () => {
@@ -269,6 +270,56 @@
                 });
             } catch (e) {
                 console.error('設定値の読み込みに失敗:', e);
+            }
+        });
+
+        // 設定ボタンとモーダル内のボタンに直接イベントリスナーを追加
+        document.addEventListener('click', function(e) {
+            // 設定ボタンのクリック
+            if (e.target.id === 'settings-button' || e.target.closest('#settings-button')) {
+                console.log('設定ボタンが直接リスナーによってクリックされました');
+                const modal = document.getElementById('settings-modal');
+                if (modal) {
+                    modal.style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                    
+                    // 設定フォームを初期化
+                    try {
+                        if (typeof populateSettingsForm === 'function') {
+                            populateSettingsForm();
+                        } else if (window.populateSettingsForm) {
+                            window.populateSettingsForm();
+                        }
+                    } catch (error) {
+                        console.warn('設定フォームの初期化に失敗しました:', error);
+                    }
+                }
+            }
+            
+            // モーダル内の保存ボタン
+            if (e.target.id === 'save-settings') {
+                console.log('保存ボタンが直接リスナーによってクリックされました');
+                try {
+                    // 設定を保存
+                    if (typeof getSettingsFromForm === 'function' && 
+                        typeof saveSettings === 'function' && 
+                        typeof applySettings === 'function') {
+                        
+                        const currentSettings = getSettingsFromForm();
+                        saveSettings(currentSettings);
+                        
+                        const modal = document.getElementById('settings-modal');
+                        if (modal) {
+                            modal.style.display = 'none';
+                            document.body.style.overflow = '';
+                        }
+                        
+                        applySettings();
+                        alert('設定が保存されました');
+                    }
+                } catch (error) {
+                    console.error('設定保存エラー:', error);
+                }
             }
         });
     </script>

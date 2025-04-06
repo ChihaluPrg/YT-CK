@@ -16,9 +16,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const testNotificationButton = document.getElementById('test-notification');
     const testDiscordButton = document.getElementById('test-discord-notification');
     
-    // 要素のデバッグ出力
-    console.log('設定ボタン:', settingsButton);
-    console.log('設定モーダル:', settingsModal);
+    // 要素のデバッグ出力 (より詳細に)
+    console.log('設定関連のDOM要素:', {
+        'settingsButton': settingsButton,
+        'settingsModal': settingsModal,
+        'closeModalButtons': closeModalButtons.length,
+        'saveSettingsButton': saveSettingsButton,
+        'testNotificationButton': testNotificationButton,
+        'testDiscordButton': testDiscordButton,
+        'settingsTabs': settingsTabs.length,
+        'settingsPanels': settingsPanels.length
+    });
     
     // デフォルト設定
     const defaultSettings = {
@@ -334,111 +342,237 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // イベントリスナー
     
-    // 設定ボタンクリック
-    if (settingsButton) {
-        settingsButton.addEventListener('click', () => {
-            console.log('設定ボタンがクリックされました');
-            populateSettingsForm();
-            settingsModal.style.display = 'block';
-            document.body.style.overflow = 'hidden'; // スクロール防止
-        });
-    } else {
-        console.error('設定ボタンが見つかりません');
+    // 設定ボタンクリック - グローバルリスナーに変更
+    function setupSettingsButtonListener() {
+        const settingsBtn = document.getElementById('settings-button');
+        if (settingsBtn) {
+            console.log('設定ボタンにリスナーを設定します');
+            
+            // 既存のリスナーをすべて削除
+            const newButton = settingsBtn.cloneNode(true);
+            settingsBtn.parentNode.replaceChild(newButton, settingsBtn);
+            
+            // 新しいリスナーを追加
+            newButton.addEventListener('click', () => {
+                console.log('設定ボタンがクリックされました');
+                const modal = document.getElementById('settings-modal');
+                if (modal) {
+                    populateSettingsForm();
+                    modal.style.display = 'block';
+                    document.body.style.overflow = 'hidden'; // スクロール防止
+                } else {
+                    console.error('モーダルが見つかりません');
+                }
+            });
+        } else {
+            console.error('設定ボタンが見つかりません');
+        }
     }
     
-    // モーダルを閉じる
-    closeModalButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            settingsModal.style.display = 'none';
-            document.body.style.overflow = '';
-        });
-    });
+    // 初期リスナーを設定
+    setupSettingsButtonListener();
     
-    // モーダル外クリックで閉じる
-    settingsModal.addEventListener('click', (e) => {
-        if (e.target === settingsModal) {
-            settingsModal.style.display = 'none';
-            document.body.style.overflow = '';
-        }
-    });
-    
-    // 設定タブの切り替え
-    settingsTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            const tabName = tab.getAttribute('data-tab');
+    // モーダル要素をセットアップ (モーダルは動的に読み込まれることがあるため)
+    function setupModalListeners() {
+        console.log('モーダルリスナーを設定します');
+        
+        // クローズボタン
+        document.querySelectorAll('.close-modal').forEach(button => {
+            // 既存のリスナーを削除して新しいリスナーを設定
+            const newButton = button.cloneNode(true);
+            button.parentNode.replaceChild(newButton, button);
             
-            // アクティブなタブを変更
-            settingsTabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            
-            // 対応するパネルを表示
-            settingsPanels.forEach(panel => {
-                panel.classList.remove('active');
-                if (panel.id === `${tabName}-settings`) {
-                    panel.classList.add('active');
+            newButton.addEventListener('click', (e) => {
+                console.log('閉じるボタンがクリックされました');
+                e.preventDefault();
+                e.stopPropagation();
+                const modal = document.getElementById('settings-modal');
+                if (modal) {
+                    modal.style.display = 'none';
+                    document.body.style.overflow = '';
                 }
             });
         });
-    });
-    
-    // 設定保存
-    saveSettingsButton.addEventListener('click', () => {
-        try {
-            currentSettings = getSettingsFromForm();
+        
+        // 保存ボタン
+        const saveButton = document.getElementById('save-settings');
+        if (saveButton) {
+            // 既存のリスナーを削除して新しいリスナーを設定
+            const newSaveButton = saveButton.cloneNode(true);
+            saveButton.parentNode.replaceChild(newSaveButton, saveButton);
             
-            // 設定値のバリデーション
-            if (currentSettings.general.checkInterval < 5) {
-                currentSettings.general.checkInterval = 5;
-                alert('チェック間隔は5分以上で設定されました。');
+            newSaveButton.addEventListener('click', (e) => {
+                console.log('保存ボタンがクリックされました');
+                e.preventDefault();
+                e.stopPropagation();
+                
+                try {
+                    currentSettings = getSettingsFromForm();
+                    
+                    // 設定値のバリデーション
+                    if (currentSettings.general.checkInterval < 5) {
+                        currentSettings.general.checkInterval = 5;
+                        alert('チェック間隔は5分以上で設定されました。');
+                    }
+                    
+                    saveSettings(currentSettings);
+                    const modal = document.getElementById('settings-modal');
+                    if (modal) {
+                        modal.style.display = 'none';
+                        document.body.style.overflow = '';
+                    }
+                    
+                    applySettings();
+                    alert('設定が保存されました');
+                } catch (error) {
+                    console.error('設定の保存・適用中にエラーが発生しました:', error);
+                    alert('設定の保存中にエラーが発生しました');
+                }
+            });
+        } else {
+            console.error('保存ボタンが見つかりません');
+        }
+        
+        // テスト通知ボタン
+        const testButton = document.getElementById('test-notification');
+        if (testButton) {
+            // 既存のリスナーを削除して新しいリスナーを設定
+            const newTestButton = testButton.cloneNode(true);
+            testButton.parentNode.replaceChild(newTestButton, testButton);
+            
+            newTestButton.addEventListener('click', (e) => {
+                console.log('テスト通知ボタンがクリックされました');
+                e.preventDefault();
+                e.stopPropagation();
+                sendTestNotification();
+            });
+        } else {
+            console.error('テスト通知ボタンが見つかりません');
+        }
+        
+        // Discordテスト通知ボタン
+        const discordTestButton = document.getElementById('test-discord-notification');
+        if (discordTestButton) {
+            // 既存のリスナーを削除して新しいリスナーを設定
+            const newDiscordTestButton = discordTestButton.cloneNode(true);
+            discordTestButton.parentNode.replaceChild(newDiscordTestButton, discordTestButton);
+            
+            newDiscordTestButton.addEventListener('click', (e) => {
+                console.log('Discordテスト通知ボタンがクリックされました');
+                e.preventDefault();
+                e.stopPropagation();
+                sendTestDiscordNotification();
+            });
+        } else {
+            console.error('Discordテスト通知ボタンが見つかりません');
+        }
+        
+        // 設定タブの切り替え
+        document.querySelectorAll('.settings-tab').forEach(tab => {
+            // 既存のリスナーを削除して新しいリスナーを設定
+            const newTab = tab.cloneNode(true);
+            tab.parentNode.replaceChild(newTab, tab);
+            
+            newTab.addEventListener('click', (e) => {
+                console.log('設定タブがクリックされました:', newTab.getAttribute('data-tab'));
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const tabName = newTab.getAttribute('data-tab');
+                
+                // アクティブなタブを変更
+                document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+                newTab.classList.add('active');
+                
+                // 対応するパネルを表示
+                document.querySelectorAll('.settings-panel').forEach(panel => {
+                    panel.classList.remove('active');
+                    if (panel.id === `${tabName}-settings`) {
+                        panel.classList.add('active');
+                    }
+                });
+            });
+        });
+    }
+    
+    // モーダルイベントリスナー設定関数を呼び出す
+    setupModalListeners();
+    
+    // モーダル外クリックで閉じる
+    if (settingsModal) {
+        const newModal = settingsModal.cloneNode(true);
+        settingsModal.parentNode.replaceChild(newModal, settingsModal);
+        
+        newModal.addEventListener('click', (e) => {
+            if (e.target === newModal) {
+                console.log('モーダル外がクリックされました');
+                newModal.style.display = 'none';
+                document.body.style.overflow = '';
             }
-            
-            saveSettings(currentSettings);
-            settingsModal.style.display = 'none';
-            document.body.style.overflow = '';
-            
-            applySettings();
-            alert('設定が保存されました');
-        } catch (error) {
-            console.error('設定の保存・適用中にエラーが発生しました:', error);
-            alert('設定の保存中にエラーが発生しました');
+        });
+    }
+    
+    // 設定ボタンがクリックされたときにもリスナーを再設定
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'settings-button' || e.target.closest('#settings-button')) {
+            console.log('設定ボタン関連要素がクリックされました - リスナーを再設定');
+            setTimeout(() => {
+                setupModalListeners();
+            }, 100); // モーダルが表示された後に実行
         }
     });
     
-    // CSVエクスポート
-    exportButton.addEventListener('click', (e) => {
-        e.stopPropagation(); // セクションヘッダーのクリックイベントを阻止
-        exportChannelsToCSV();
-    });
+    // 定期的にモーダルリスナーを確認・再設定
+    setInterval(() => {
+        const modal = document.getElementById('settings-modal');
+        if (modal && modal.style.display === 'block') {
+            setupModalListeners();
+        }
+    }, 1000);
     
-    // CSVインポート
-    importButton.addEventListener('click', (e) => {
-        e.stopPropagation(); // セクションヘッダーのクリックイベントを阻止
-        csvFileInput.click();
-    });
-    
-    // ファイル選択時の処理
-    csvFileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            importChannelsFromCSV(e.target.files[0]);
-            e.target.value = ''; // ファイル選択をリセット
+    // ドキュメント全体にクリックリスナーを追加 (特定のボタンを確実に捕捉するため)
+    document.addEventListener('click', (e) => {
+        // 設定モーダル内のボタンクリックを監視
+        if (e.target.id === 'save-settings' || e.target.id === 'test-notification' || 
+            e.target.id === 'test-discord-notification') {
+            console.log('モーダル内のボタンが直接クリックされました:', e.target.id);
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (e.target.id === 'save-settings') {
+                try {
+                    const currentSettings = window.getSettingsFromForm ? 
+                        window.getSettingsFromForm() : 
+                        getSettingsFromForm();
+                    
+                    window.saveSettings ? 
+                        window.saveSettings(currentSettings) : 
+                        saveSettings(currentSettings);
+                    
+                    document.getElementById('settings-modal').style.display = 'none';
+                    document.body.style.overflow = '';
+                    
+                    window.applySettings ? 
+                        window.applySettings() : 
+                        applySettings();
+                    
+                    alert('設定が保存されました');
+                } catch (error) {
+                    console.error('設定保存時のエラー:', error);
+                    alert('設定の保存中にエラーが発生しました');
+                }
+            } else if (e.target.id === 'test-notification') {
+                window.sendTestNotification ? 
+                    window.sendTestNotification() : 
+                    sendTestNotification();
+            } else if (e.target.id === 'test-discord-notification') {
+                window.sendTestDiscordNotification ? 
+                    window.sendTestDiscordNotification() : 
+                    sendTestDiscordNotification();
+            }
         }
     });
-    
-    // テスト通知ボタン
-    if (testNotificationButton) {
-        testNotificationButton.addEventListener('click', sendTestNotification);
-        console.log('テスト通知ボタンが登録されました');
-    } else {
-        console.error('テスト通知ボタンが見つかりません');
-    }
-    
-    // Discordテスト通知ボタン
-    if (testDiscordButton) {
-        testDiscordButton.addEventListener('click', sendTestDiscordNotification);
-        console.log('Discordテスト通知ボタンが登録されました');
-    } else {
-        console.error('Discordテスト通知ボタンが見つかりません');
-    }
     
     // 初期設定の適用
     applySettings();
