@@ -145,7 +145,7 @@
                         <div class="setting-item">
                             <label for="check-interval-setting">チェック間隔 (分):</label>
                             <input type="number" id="check-interval-setting" min="5" value="30">
-                            <small>5分以上で設定してください</small>
+                            <small>5分以上で設定してください。変更はアプリ全体に即時反映されます。</small>
                         </div>
                     </div>
                 </div>
@@ -234,7 +234,7 @@
     <script src="js/app.js"></script>
     <script src="js/settings.js"></script>
 
-    <!-- デバッグ用のスクリプト -->
+    <!-- デバッグ用のスクリプト - 拡張して設定状態を確認できるようにする -->
     <script>
         // ページロード時に設定ボタンが存在するか確認
         window.addEventListener('load', () => {
@@ -254,6 +254,21 @@
                 });
             } else {
                 console.error('設定ボタンが見つかりません');
+            }
+            
+            // 設定値の状態をログ出力（トラブルシューティング用）
+            try {
+                const appSettings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+                const legacyInterval = localStorage.getItem('checkInterval');
+                console.log('現在の設定値:', {
+                    appSettings: appSettings,
+                    legacyCheckInterval: legacyInterval,
+                    checkIntervalFromApp: appSettings.general?.checkInterval,
+                    uiCheckInterval: document.getElementById('check-interval')?.value,
+                    uiSettingCheckInterval: document.getElementById('check-interval-setting')?.value
+                });
+            } catch (e) {
+                console.error('設定値の読み込みに失敗:', e);
             }
         });
     </script>

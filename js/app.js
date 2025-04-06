@@ -622,18 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // チェック間隔を保存
-    checkIntervalInput.addEventListener('change', () => {
-        const interval = parseInt(checkIntervalInput.value, 10);
-        if (interval >= 5) {
-            localStorage.setItem('checkInterval', interval);
-            setupPeriodicCheck();
-        } else {
-            alert('チェック間隔は5分以上に設定してください');
-            checkIntervalInput.value = 5;
-        }
-    });
-
     // 定期的なチェックを設定
     let checkIntervalId = null;
     function setupPeriodicCheck() {
@@ -642,34 +630,96 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(checkIntervalId);
         }
         
-        // まず設定から間隔を取得し、なければローカルストレージから取得
-        const settingsInterval = getSettingValue('general.checkInterval', null);
-        const interval = settingsInterval || parseInt(localStorage.getItem('checkInterval') || '30', 10);
+        // 設定から間隔を取得（アプリ設定を優先）
+        const settings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+        let interval = 30; // デフォルト値
         
-        // 入力フィールドにも反映
-        checkIntervalInput.value = interval;
+        // appSettingsから値を取得（最優先）
+        if (settings && settings.general && settings.general.checkInterval) {
+            interval = parseInt(settings.general.checkInterval, 10);
+            console.log('appSettings から間隔を取得しました:', interval);
+        } 
+        // 下位互換性のためにlegacyの設定も確認
+        else {
+            const legacyInterval = localStorage.getItem('checkInterval');
+            if (legacyInterval) {
+                interval = parseInt(legacyInterval, 10);
+                console.log('legacy設定から間隔を取得しました:', interval);
+                
+                // 古い設定を新しい形式に移行
+                if (!settings.general) settings.general = {};
+                settings.general.checkInterval = interval;
+                localStorage.setItem('appSettings', JSON.stringify(settings));
+                console.log('設定を新しい形式に移行しました');
+            }
+        }
+        
+        // 範囲チェック
+        if (interval < 5) interval = 5;
+        
+        // 入力フィールドに反映
+        const checkIntervalInput = document.getElementById('check-interval');
+        if (checkIntervalInput) {
+            checkIntervalInput.value = interval;
+        }
         
         // 新しいタイマーを設定（分をミリ秒に変換）
-        checkIntervalId = setInterval(checkAllChannels, interval * 60 * 1000);
+        const intervalMs = interval * 60 * 1000;
+        checkIntervalId = setInterval(checkAllChannels, intervalMs);
         
-        console.log(`チェック間隔を${interval}分に設定しました`);
+        console.log(`チェック間隔を${interval}分(${intervalMs}ms)に設定しました`);
     }
 
     // チェック間隔を更新する関数（外部から呼び出し可能）
     function updateCheckInterval(interval) {
-        if (interval < 5) interval = 5; // 最低5分は確保
+        if (!interval || isNaN(interval)) {
+            console.error('無効な間隔値です:', interval);
+            return;
+        }
         
-        // ローカルストレージに保存
-        localStorage.setItem('checkInterval', interval);
+        // 最小値を確保
+        interval = Math.max(5, parseInt(interval, 10));
         
-        // 入力フィールドにも反映
-        checkIntervalInput.value = interval;
+        console.log('チェック間隔を更新します:', interval);
         
-        // チェックタイマーを再設定
-        setupPeriodicCheck();
-        
-        console.log(`チェック間隔を${interval}分に更新しました`);
+        try {
+            // appSettingsを更新
+            const settings = JSON.parse(localStorage.getItem('appSettings') || '{}');
+            if (!settings.general) settings.general = {};
+            settings.general.checkInterval = interval;
+            localStorage.setItem('appSettings', JSON.stringify(settings));
+            
+            // 下位互換性のために古い設定も更新
+            localStorage.setItem('checkInterval', interval.toString());
+            
+            // UI更新
+            const checkIntervalInput = document.getElementById('check-interval');
+            if (checkIntervalInput) {
+                checkIntervalInput.value = interval;
+            }
+            
+            // タイマー再設定
+            setupPeriodicCheck();
+            
+            console.log(`チェック間隔が${interval}分に更新されました`);
+        } catch (error) {
+            console.error('チェック間隔の更新中にエラーが発生しました:', error);
+        }
     }
+
+    // チェック間隔の変更を監視
+    checkIntervalInput.addEventListener('change', () => {
+        const interval = parseInt(checkIntervalInput.value, 10);
+        
+        if (interval < 5) {
+            alert('チェック間隔は5分以上で設定してください');
+            checkIntervalInput.value = 5;
+            return;
+        }
+        
+        // appSettingsとlocalStorageの両方を更新
+        updateCheckInterval(interval);
+    });
 
     // 今すぐチェックボタンのイベントリスナー
     checkNowBtn.addEventListener('click', checkAllChannels);

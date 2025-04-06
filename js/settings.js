@@ -59,7 +59,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 設定を保存する
     function saveSettings(settings) {
-        localStorage.setItem('appSettings', JSON.stringify(settings));
+        try {
+            localStorage.setItem('appSettings', JSON.stringify(settings));
+            console.log('設定を保存しました:', settings);
+            
+            // チェック間隔の値を下位互換性のために別途保存
+            if (settings.general && settings.general.checkInterval) {
+                localStorage.setItem('checkInterval', settings.general.checkInterval.toString());
+                console.log('チェック間隔の値を別途保存しました:', settings.general.checkInterval);
+            }
+        } catch (error) {
+            console.error('設定の保存中にエラーが発生しました:', error);
+            alert('設定の保存中にエラーが発生しました。ブラウザのストレージに問題がある可能性があります。');
+        }
     }
     
     // 設定フォームに値を設定
@@ -95,11 +107,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // フォームから設定を取得
     function getSettingsFromForm() {
+        const checkIntervalValue = parseInt(document.getElementById('check-interval-setting').value, 10);
+        // チェック間隔のバリデーション
+        const validCheckInterval = isNaN(checkIntervalValue) || checkIntervalValue < 5 ? 30 : checkIntervalValue;
+        
         return {
             general: {
                 defaultView: document.getElementById('default-view').value,
                 autoCheck: document.getElementById('auto-check').checked,
-                checkInterval: parseInt(document.getElementById('check-interval-setting').value, 10) || 30
+                checkInterval: validCheckInterval
             },
             notification: {
                 enableNotifications: document.getElementById('enable-notifications').checked,
@@ -122,42 +138,52 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 設定を適用
     function applySettings() {
-        // ビュー設定の適用
-        const viewButtons = document.querySelectorAll('.view-btn');
-        viewButtons.forEach(btn => {
-            if (btn.getAttribute('data-view') === currentSettings.general.defaultView) {
-                btn.click();
+        try {
+            // ビュー設定の適用
+            const viewButtons = document.querySelectorAll('.view-btn');
+            viewButtons.forEach(btn => {
+                if (btn.getAttribute('data-view') === currentSettings.general.defaultView) {
+                    btn.click();
+                }
+            });
+            
+            // タブ設定の適用
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            tabButtons.forEach(btn => {
+                if (btn.getAttribute('data-tab') === currentSettings.display.defaultTab) {
+                    btn.click();
+                }
+            });
+            
+            // 折りたたみ設定の適用
+            const settingsSection = document.querySelector('.settings.collapsible');
+            const channelsSection = document.querySelector('.saved-channels.collapsible');
+            
+            if (currentSettings.display.collapseSettings && !settingsSection.classList.contains('collapsed')) {
+                // 設定を折りたたむ
+                const sectionId = settingsSection.classList[0];
+                toggleSection(settingsSection, sectionId);
             }
-        });
-        
-        // タブ設定の適用
-        const tabButtons = document.querySelectorAll('.tab-btn');
-        tabButtons.forEach(btn => {
-            if (btn.getAttribute('data-tab') === currentSettings.display.defaultTab) {
-                btn.click();
+            
+            if (currentSettings.display.collapseChannels && !channelsSection.classList.contains('collapsed')) {
+                // チャンネルリストを折りたたむ
+                const sectionId = channelsSection.classList[0];
+                toggleSection(channelsSection, sectionId);
             }
-        });
-        
-        // 折りたたみ設定の適用
-        const settingsSection = document.querySelector('.settings.collapsible');
-        const channelsSection = document.querySelector('.saved-channels.collapsible');
-        
-        if (currentSettings.display.collapseSettings && !settingsSection.classList.contains('collapsed')) {
-            // 設定を折りたたむ
-            const sectionId = settingsSection.classList[0];
-            toggleSection(settingsSection, sectionId);
-        }
-        
-        if (currentSettings.display.collapseChannels && !channelsSection.classList.contains('collapsed')) {
-            // チャンネルリストを折りたたむ
-            const sectionId = channelsSection.classList[0];
-            toggleSection(channelsSection, sectionId);
-        }
-        
-        // チェック間隔の設定を反映
-        const checkInterval = currentSettings.general.checkInterval || 30;
-        if (window.updateCheckInterval) {
-            window.updateCheckInterval(checkInterval);
+            
+            // チェック間隔の設定を反映
+            if (currentSettings.general && currentSettings.general.checkInterval !== undefined) {
+                const interval = parseInt(currentSettings.general.checkInterval, 10);
+                console.log('チェック間隔を設定から適用します:', interval);
+                
+                if (window.updateCheckInterval) {
+                    window.updateCheckInterval(interval);
+                } else {
+                    console.warn('updateCheckInterval関数が見つかりません。app.jsが正しく読み込まれているか確認してください。');
+                }
+            }
+        } catch (error) {
+            console.error('設定の適用中にエラーが発生しました:', error);
         }
     }
     
@@ -333,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === settingsModal) {
             settingsModal.style.display = 'none';
             document.body.style.overflow = '';
-        });
+        }
     });
     
     // 設定タブの切り替え
@@ -357,13 +383,25 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 設定保存
     saveSettingsButton.addEventListener('click', () => {
-        currentSettings = getSettingsFromForm();
-        saveSettings(currentSettings);
-        settingsModal.style.display = 'none';
-        document.body.style.overflow = '';
-        
-        applySettings();
-        alert('設定が保存されました');
+        try {
+            currentSettings = getSettingsFromForm();
+            
+            // 設定値のバリデーション
+            if (currentSettings.general.checkInterval < 5) {
+                currentSettings.general.checkInterval = 5;
+                alert('チェック間隔は5分以上で設定されました。');
+            }
+            
+            saveSettings(currentSettings);
+            settingsModal.style.display = 'none';
+            document.body.style.overflow = '';
+            
+            applySettings();
+            alert('設定が保存されました');
+        } catch (error) {
+            console.error('設定の保存・適用中にエラーが発生しました:', error);
+            alert('設定の保存中にエラーが発生しました');
+        }
     });
     
     // CSVエクスポート
